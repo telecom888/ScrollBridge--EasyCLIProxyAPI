@@ -1,0 +1,100 @@
+# 卷桥 ScrollBridge
+
+将正在本机运行的 CLIProxyAPI / EasyCLIProxyAPI 模型服务通过固定域名提供给外部客户端。Windows x64 桌面应用，白色与羊皮纸色界面，支持深色和跟随系统。域名默认留空。
+
+## 启动
+
+双击 `release/ScrollBridge-0.1.0-win-x64.exe`，无需安装 Node.js、管理员权限或开放入站端口。保持原代理工具运行。
+
+1. 在「连接」选择「从代理工具导入」，选择原代理的 `cpa-core/config.yaml`。兼容当前 v8 和旧版配置，仅导入监听地址和首个客户端密钥，不读取 OAuth 凭据、不修改原文件。
+2. 检测本地服务。默认地址 `http://127.0.0.1:8317`，网关 `127.0.0.1:18443`。
+3. 填写你自己的域名并保存，例如 `api.example.com`。
+4. 在「设置 → 域名与隧道」选择下述绑定方式，完成后「启动连接」。
+5. 在「接入」检测 HTTPS，复制访问密钥和调用示例，在外部客户端使用。
+
+## 连通性检测
+
+「连接」页提供两个独立检测卡片，并显示检测时间和每步结果。
+
+- **代理工具 → 检测进程**：读取 CLIProxyAPI 核心进程 PID、确认服务端口由核心进程监听，再访问模型列表。会区分未启动、端口被其他进程占用、本地密钥错误与模型 API 故障。EasyCLIProxyAPI 图形进程是否运行也会在内部检测结果中记录，核心服务才是请求可用的判断依据。
+- **外部请求 → 检测外部请求**：严格通过保存域名的 HTTPS 地址访问网关，验证证书、鉴权、模型列表，再发送一次 `Reply OK.` 短模型请求。只有收到有效 SSE 内容与完成标记、且没有流内错误时才标为正常；单纯 HTTP 200 不算通过。检测会使用原代理的一个文本模型额度，选择优先 Flash、其次可用文本模型，最多 64 个输出 Token。
+
+外部检测由本机访问公网域名，是公网路径回环测试，可发现 DNS、TLS、鉴权和模型响应问题。它不等于另一个地理位置的独立网络探针；上线后仍可使用手机蜂窝网络复核。程序不自动重复发送模型请求。修改连接配置后旧检测结果清空。
+
+## 绑定域名
+
+域名须托管于 Cloudflare DNS。注册商可以保留原样，仅在注册商处按 Cloudflare 指示修改 NS；导入并核对现有 DNS 记录后再变更。应用不会自动迁移 DNS 或替换域名服务器。
+
+### 已有隧道
+
+在 Cloudflare 控制台 Networking → Tunnels 创建 remotely managed 命名隧道，取得连接令牌（只复制 `eyJ...`，不是整条安装命令）。
+
+在隧道中新增 Published application 路由：
+
+| 字段 | 填写 |
+| --- | --- |
+| Hostname | 你在卷桥中保存的域名 |
+| Service | `http://127.0.0.1:18443`，或修改后的网关端口 |
+
+将隧道令牌粘贴到卷桥并保存。控制台会为路由建立 DNS 记录。不要把路由直接指向代理的 8317 端口。
+
+### 自动绑定
+
+在卷桥中填写 Cloudflare API 令牌、账户 ID、区域 ID，再点击「创建隧道并绑定域名」。该操作会在 Cloudflare 创建远程管理隧道、设置 ingress、创建代理 CNAME，并加密保存隧道连接令牌。
+
+API 令牌最小权限：目标账户 **Cloudflare Tunnel: Edit**，目标区域 **DNS: Edit**、**Zone: Read**。账户 ID、区域 ID 可从域名概览取得。API 令牌仅用于当前操作，不保存到设置或日志；无需提供 Global API Key。遇到同名 DNS 记录时停止，不覆盖已有记录；创建过程中失败会尽力撤销本次资源，若清理失败会提示手动处理。
+
+网关端口以后改变时，必须同时在 Cloudflare 路由中更新 Service。停止连接只停止本地进程，不删除已建立的域名和隧道。
+
+## 接入协议
+
+| 协议 | Base URL / 端点 | 外部鉴权 |
+| --- | --- | --- |
+| OpenAI | `https://你的域名/v1`；Chat Completions、Responses、Completions、Embeddings、模型列表 | `Authorization: Bearer 卷桥访问密钥` |
+| Anthropic | `https://你的域名`；`/v1/messages`、`/v1/messages/count_tokens` | `x-api-key: 卷桥访问密钥`，并传 `anthropic-version` |
+| Google | `https://你的域名`；`/v1beta/models`、generateContent、streamGenerateContent、countTokens、Interactions | `x-goog-api-key: 卷桥访问密钥`，也接受 `?key=` |
+
+支持 SSE，OpenAI Responses 的 `/v1/responses` 支持 WebSocket。模型 ID 与能力由原代理提供；卷桥不另外实现模型、OAuth 登录或协议转换。使用 SDK 时避免重复追加 `/v1`。
+
+## 连接与数据
+
+- 请求链路：外部客户端 → HTTPS → Cloudflare 边缘 → 加密 Tunnel → 本机回环 HTTP 网关 → 本机代理。Cloudflare 终止客户端 TLS，可见应用流量；不是客户端到本机的端到端 TLS。本机两段 HTTP 均限定回环地址，不经过局域网。
+- 命名 Tunnel 提供固定域名与 SSE。Quick Tunnel 官方不支持 SSE，因此应用不提供该模式。
+- 外部访问密钥独立随机生成；通过 Bearer、Anthropic 和 Google 方式验证后，替换成本地代理客户端密钥。模型接口白名单之外的管理面板、OAuth、任意地址转发均被拒绝。
+- 网关仅监听 `127.0.0.1`；本地上游也限制回环地址。HTTPS 上游保留证书校验，不提供跳过校验选项。
+- 外部密钥、本地密钥、隧道令牌由 Electron safeStorage 使用 Windows DPAPI 加密，保存在 `%APPDATA%/ScrollBridge/settings.json`。配置绑定当前 Windows 用户。隧道令牌通过子进程环境传递，不在命令行或明文文件中保存。
+- 日志只在内存保留最近 200 条请求、100 条隧道消息，不记录正文和查询参数。退出即清空。复制密钥后系统剪贴板中会保留该值。
+- 单请求上限 32 MiB，最多 64 个并发上游请求，闲置上游超时 10 分钟，HTTP 请求最长 30 分钟。流使用管道背压，客户端断开会取消上游。
+- 连接运行时关闭主窗口会缩到托盘；从托盘「退出」停止隧道和网关。应用不会启动或退出原代理工具。开机启动只打开卷桥，不自动向公网发布。
+- 本机和原代理必须保持运行、联网且不休眠。命名隧道连接成功不代表 DNS 和证书已生效，需再做「检测 HTTPS」。外网最终验证应在手机蜂窝网络或其他网络使用实际客户端发起请求。
+- 云端服务与 Cloudflare 的请求大小、超时及网络可达性仍适用。受限网络可在设置将传输改成 HTTP/2；电脑需能出站访问 Cloudflare Tunnel 的 7844 端口。
+
+## 开发与打包
+
+需要 Node.js 24、npm、Windows x64；Python Pillow 仅用于重新生成应用图标。
+
+```powershell
+npm ci
+npm run vendor
+npm run check
+npm test
+npm start
+npm run dist
+```
+
+`vendor` 下载 cloudflared 2026.10.1 并比对固定官方 SHA-256。`dist` 生成免安装 EXE。`node scripts/logos.cjs` 可从锁定的 GitHub 版本重新下载 SVG 和许可证。`node scripts/smoke.cjs` 验证 Electron UI 和本工作区代理导入；`node scripts/live-proxy.cjs` 对本工作区正在运行的代理发起三次最小流式请求。后两者的原代理路径针对本机，迁移机器时需修改。
+
+测试截图、临时加密配置和报告在 `.test-output/`，不进入 Git 或安装包。源代码不包含个人域名和凭据。生产依赖仅 `ws` 和 `yaml`。
+
+当前为未签名的本地构建，未配置代码签名证书。分发前可为构建增加 Windows 签名。
+
+## 参考与许可
+
+UI 先用内置 ImageGen 生成参考，再实现原生代码界面。参考图、完整提示词与实际截图位于 `design/`。三家公司标识来自 GitHub Lobe Icons，保留 MIT 许可证；本项目独立于三家公司。
+
+- [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI)，研究版本 `3f0cef010e4ad20279500e6b0f18060b6f3f37cc`，接口定义 `internal/api/server_routes.go`、配置兼容 `internal/config/config_v8.go`。
+- [EasyCLIProxyAPI](https://github.com/router-for-me/EasyCLIProxyAPI)，研究版本 `aee871a369ad3494c213806da8f8ba8c840e79b8`。
+- [Cloudflare Tunnel 配置](https://developers.cloudflare.com/tunnel/get-started/)、[Quick Tunnel 限制](https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/)。
+- [Lobe Icons](https://github.com/lobehub/lobe-icons)，见 `THIRD_PARTY_NOTICES.md`。
+
+项目使用 MIT 许可证。没有捆绑原 CLIProxyAPI 或 EasyCLIProxyAPI 可执行文件。

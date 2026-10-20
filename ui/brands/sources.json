@@ -1,0 +1,21 @@
+{
+  "repository": "https://github.com/lobehub/lobe-icons",
+  "commit": "8a1b2821bb768c484fe8da20c5e1838b6bf551a9",
+  "icons": [
+    {
+      "name": "openai",
+      "source": "https://raw.githubusercontent.com/lobehub/lobe-icons/8a1b2821bb768c484fe8da20c5e1838b6bf551a9/packages/static-svg/icons/openai.svg",
+      "sha256": "a595df6b423920c67a7f8f73c063e4bfb72d415948097b6cac063a2366bb5186"
+    },
+    {
+      "name": "anthropic",
+      "source": "https://raw.githubusercontent.com/lobehub/lobe-icons/8a1b2821bb768c484fe8da20c5e1838b6bf551a9/packages/static-svg/icons/anthropic.svg",
+      "sha256": "e833fdfa7e7187a86a05b870925067556a506dcd4239089aed73e1e58c9366a3"
+    },
+    {
+      "name": "google",
+      "source": "https://raw.githubusercontent.com/lobehub/lobe-icons/8a1b2821bb768c484fe8da20c5e1838b6bf551a9/packages/static-svg/icons/google.svg",
+      "sha256": "c4bb45d362cb0a98b33b1f2fb424db2a5cd95a90e1043ae4e387de81a5e64951"
+    }
+  ]
+}

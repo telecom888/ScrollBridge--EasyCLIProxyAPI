@@ -1,0 +1,8 @@
+node_modules/
+release/
+vendor/*.exe
+.test-output/
+*.log
+.env*
+config.json
+secrets*

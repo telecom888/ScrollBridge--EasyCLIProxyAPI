@@ -1,0 +1,8 @@
+Tool: built-in image_gen (not CLI)
+Use case: ui-mockup.
+
+Create a high fidelity Windows desktop app design reference, landscape 1536x1024. Application named "卷桥" for connecting a local AI proxy to the Internet through a domain and encrypted tunnel. Show one large light theme app window and a smaller dark theme inset at lower right. Quiet meticulous professional utility interface, generous spacing, no marketing or decorative text. Main background pure white, left navigation and settings surfaces warm parchment #f2ecdf subtly paperlike without aged effects, text dark ink #292723, muted copper accent #9c6747, thin taupe borders, refined line icons, rounded corners 12px. Left sidebar logo simple arch bridge, name 卷桥, navigation only 连接, 接入, 记录, 设置. Header 连接 and theme switch moon icon. Main status card has disconnected small amber dot and 未连接, clear 启动连接 copper button. Below small connection diagram 本地代理 → 加密隧道 → 自定义域名. Configuration form two balanced columns: 本地服务 http://127.0.0.1:8317, 网关端口 18443, 域名 api.example.com, 隧道令牌 masked password. Bottom protocol cards OpenAI / Anthropic / Google with concise endpoint paths /v1 /v1/messages /v1beta. Dark inset shows identical structure in charcoal #1e201e and warm ink surfaces #292a26. All visible copy functional, short, crisp. No charts, fake metrics, illustrations, filler slogans, giant welcome title or unnecessary text. Screen design reference only, no desk or physical device.
+
+Saved reference: design/ui-reference.png
+Implementation: ui/index.html, ui/style.css, ui/app.js
+Brand marks were replaced with original Lobe Icons SVG assets during implementation.
