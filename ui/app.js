@@ -33,7 +33,15 @@ for (const id of lockedControls) {
 }
 async function call(action, payload) { try { return await window.bridge.invoke(action, payload); } catch (e) { const message = e.message.replace(/^Error invoking remote method '[^']+': Error: /, ''); toast(message, true); throw e; } }
 async function task(button, fn) { if (pending) return; pending = true; if (button) button.disabled = true; try { await fn(); } catch {} finally { pending = false; if (button) button.disabled = false; if (snapshot) renderModelCatalog(); } }
-function page(name) { currentPage = name; document.querySelectorAll('.page').forEach(el => el.hidden = el.id !== `page-${name}`); document.querySelectorAll('.nav').forEach(el => el.classList.toggle('active', el.dataset.page === name)); $('page-title').textContent = {connection:'连接',access:'接入',catalog:'模型',records:'记录',settings:'设置'}[name]; }
+function page(name) {
+  if (name === currentPage) return;
+  currentPage = name;
+  document.querySelectorAll('.page').forEach(el => el.hidden = el.id !== `page-${name}`);
+  const selected = document.querySelector(`.nav[data-page="${name}"]`);
+  moveSelection(selected.parentElement, selected);
+  $('page-title').textContent = {connection:'连接',access:'接入',catalog:'模型',records:'记录',settings:'设置'}[name];
+  reveal($(`page-${name}`)); reveal($('page-title'));
+}
 document.querySelectorAll('[data-page]').forEach(el => el.onclick = () => page(el.dataset.page));
 function applyTheme(theme) { const resolved = theme === 'system' ? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : theme; document.documentElement.dataset.theme = resolved; $('theme-toggle').innerHTML = icon(resolved === 'dark' ? 'sun' : 'moon'); document.querySelectorAll('[data-theme]').forEach(el => el.classList.toggle('active', el.dataset.theme === theme)); }
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { if (snapshot?.config.theme === 'system') applyTheme('system'); });
@@ -63,7 +71,7 @@ $('test-public').onclick=()=>checkPublic($('test-public'));$('check-external').o
 $('import').onclick = () => task($('import'), async () => { const r = await call('import'); if (r) { dirty = false; render(await call('snapshot')); toast(r.message); } });
 $('open-binding').onclick = () => page('settings'); $('show-access').onclick = () => page('access');
 document.querySelectorAll('[data-protocol]').forEach(el => el.onclick = () => { selectProtocol(el.dataset.protocol); page('access'); });
-function selectProtocol(protocol) { currentProtocol = protocol; document.querySelectorAll('[data-tab]').forEach(el => el.classList.toggle('active', el.dataset.tab === protocol)); renderExample(); }
+function selectProtocol(protocol) { if (currentProtocol === protocol) return; currentProtocol = protocol; moveSelection($('protocol-tabs'), document.querySelector(`[data-tab="${protocol}"]`)); renderExample(); reveal($('example-code')); }
 document.querySelectorAll('[data-tab]').forEach(el => el.onclick = () => selectProtocol(el.dataset.tab));
 function renderExample() {
   if (!snapshot) return; const host = snapshot.config.hostname || 'api.example.com'; const model = $('example-model').value || 'MODEL_ID';
@@ -104,10 +112,10 @@ function renderDiagnosticModels() {
   if(selected&&!available.includes(selected)) select.add(new Option(`当前不可用：${selected}`,selected));
   select.value=selected;
 }
-document.querySelectorAll('[data-bind-tab]').forEach(el => el.onclick = () => { document.querySelectorAll('[data-bind-tab]').forEach(b => b.classList.toggle('active', b === el)); $('manual-binding').hidden = el.dataset.bindTab !== 'manual'; $('automatic-binding').hidden = el.dataset.bindTab !== 'automatic'; });
+document.querySelectorAll('[data-bind-tab]').forEach(el => el.onclick = () => { if(el.classList.contains('active')) return; moveSelection(el.parentElement, el); $('manual-binding').hidden = el.dataset.bindTab !== 'manual'; $('automatic-binding').hidden = el.dataset.bindTab !== 'automatic'; reveal(el.dataset.bindTab === 'manual' ? $('manual-binding') : $('automatic-binding')); });
 $('automatic-binding').onsubmit = e => { e.preventDefault(); task(e.submitter, async () => { if (dirty) { toast('请先返回连接页保存域名', true); return; } try { const r = await call('bind', {apiToken:$('cf-token').value,accountId:$('cf-account').value.trim(),zoneId:$('cf-zone').value.trim()}); render(await call('snapshot')); toast(r.message); } finally { $('cf-token').value = ''; } }); };
 for (const [id, action] of [['cloudflare','openCloudflare'],['guide','openGuide'],['open-data','openData']]) $(id).onclick = () => task(null, () => call(action));
-document.querySelectorAll('[data-record-tab]').forEach(el => el.onclick = () => { document.querySelectorAll('[data-record-tab]').forEach(b => b.classList.toggle('active', b === el)); $('requests-table').hidden = el.dataset.recordTab !== 'requests'; $('tunnel-logs').hidden = el.dataset.recordTab !== 'tunnel'; });
+document.querySelectorAll('[data-record-tab]').forEach(el => el.onclick = () => { if(el.classList.contains('active')) return; moveSelection(el.parentElement, el); $('requests-table').hidden = el.dataset.recordTab !== 'requests'; $('tunnel-logs').hidden = el.dataset.recordTab !== 'tunnel'; reveal(el.dataset.recordTab === 'requests' ? $('requests-table') : $('tunnel-logs')); });
 const escapeHTML = value => String(value).replace(/[&<>"']/g, x => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[x]));
 const time = value => new Date(value).toLocaleTimeString('zh-CN', {hour12:false});
 function descriptionRows(items) { return `<dl class="information-list">${items.map(([label,value])=>`<div><dt>${escapeHTML(label)}</dt><dd>${escapeHTML(String(value))}</dd></div>`).join('')}</dl>`; }
@@ -118,13 +126,29 @@ function renderDiagnostics() {
     if (!data) { summary.textContent=name==='local'?'尚未检测':'通过公网域名发送一条短模型请求'; steps.replaceChildren(); continue; }
     const metadata=[['检测时间',time(data.checkedAt)]];
     if (data.ms!==undefined) metadata.push(['耗时',`${(data.ms/1000).toLocaleString('zh-CN',{maximumFractionDigits:2})} 秒`]);
-    summary.innerHTML=`<strong class="${data.ok?'diagnostic-ok':'diagnostic-error'}">${data.ok?'检测通过':'检测未通过'}</strong>${descriptionRows(metadata)}`;
-    steps.innerHTML=data.steps.map(s=>`<div class="diagnostic-step"><span class="${s.ok?'diagnostic-ok':'diagnostic-error'}">${s.ok?'✓':'×'}</span><span>${escapeHTML(s.name)}</span><div>${s.facts?descriptionRows(s.facts):`<p>${escapeHTML(s.detail)}</p>`}</div></div>`).join('');
+    if(replaceContent(summary,`<strong class="${data.ok?'diagnostic-ok':'diagnostic-error'}">${data.ok?'检测通过':'检测未通过'}</strong>${descriptionRows(metadata)}`)) reveal(summary);
+    if(replaceContent(steps,data.steps.map(s=>`<div class="diagnostic-step"><span class="${s.ok?'diagnostic-ok':'diagnostic-error'}">${s.ok?'✓':'×'}</span><span>${escapeHTML(s.name)}</span><div>${s.facts?descriptionRows(s.facts):`<p>${escapeHTML(s.detail)}</p>`}</div></div>`).join(''))) [...steps.children].forEach((row,index)=>reveal(row,Math.min(index,5)*24));
   }
 }
 function renderRecords() {
-  $('requests-table').innerHTML = !snapshot.records.length ? `<div class="empty">${icon('file')}暂无请求</div>` : `<table><thead><tr><th>时间</th><th>方法</th><th>模型</th><th>路径</th><th>状态</th><th>耗时</th></tr></thead><tbody>${snapshot.records.map(r => `<tr><td>${time(r.time)}</td><td>${escapeHTML(r.method)}</td><td class="record-model">${escapeHTML(r.model || '—')}</td><td class="path">${escapeHTML(r.path)}</td><td><span class="status-pill ${r.status >= 400 ? 'bad' : ''}">${r.status}</span></td><td>${r.ms} ms</td></tr>`).join('')}</tbody></table>`;
-  $('tunnel-logs').innerHTML = !snapshot.logs.length ? `<div class="empty">${icon('plug')}暂无隧道记录</div>` : snapshot.logs.map(l => `<div class="log-line"><time>${time(l.time)}</time><span>${escapeHTML(l.text)}</span></div>`).join('');
+  const requests=$('requests-table');
+  if (!snapshot.records.length) replaceContent(requests,`<div class="empty">${icon('file')}暂无请求</div>`);
+  else {
+    if(!requests.querySelector('tbody')) requests.innerHTML='<table><thead><tr><th>时间</th><th>方法</th><th>模型</th><th>路径</th><th>状态</th><th>耗时</th></tr></thead><tbody></tbody></table>';
+    const occurrences=new Map();
+    const rows=snapshot.records.map(r=>{
+      const signature=JSON.stringify([r.time,r.method,r.model,r.path,r.status,r.ms]);
+      const count=occurrences.get(signature)||0; occurrences.set(signature,count+1);
+      return `<tr data-row-key="${escapeHTML(`${signature}:${count}`)}"><td>${time(r.time)}</td><td>${escapeHTML(r.method)}</td><td class="record-model">${escapeHTML(r.model || '—')}</td><td class="path">${escapeHTML(r.path)}</td><td><span class="status-pill ${r.status >= 400 ? 'bad' : ''}">${r.status}</span></td><td>${r.ms} ms</td></tr>`;
+    }).join('');
+    reconcileRows(requests.querySelector('tbody'),rows,row=>row.dataset.rowKey);
+  }
+  const logs=$('tunnel-logs'), occurrences=new Map();
+  if(!snapshot.logs.length) replaceContent(logs,`<div class="empty">${icon('plug')}暂无隧道记录</div>`);
+  else reconcileRows(logs,snapshot.logs.map(l=>{
+    const signature=JSON.stringify([l.time,l.text]), count=occurrences.get(signature)||0; occurrences.set(signature,count+1);
+    return `<div class="log-line" data-row-key="${escapeHTML(`${signature}:${count}`)}"><time>${time(l.time)}</time><span>${escapeHTML(l.text)}</span></div>`;
+  }).join(''),row=>row.dataset.rowKey);
 }
 function canonicalModel(id) { return id.trim().replace(/^models\//i,'').toLowerCase(); }
 function renderModelCatalog() {
@@ -134,8 +158,15 @@ function renderModelCatalog() {
   const query = $('model-search').value.trim().toLowerCase();
   const visible = [...rows.values()].filter(row => row.id.toLowerCase().includes(query));
   const open = known.filter(id => !disabled.has(canonicalModel(id))).length;
-  $('catalog-summary').innerHTML = snapshot.config.modelsUpdatedAt ? descriptionRows([['模型总数',known.length],['对外开放',open],['更新时间',new Date(snapshot.config.modelsUpdatedAt).toLocaleString('zh-CN',{hour12:false})]]) : '从本地代理获取可用模型';
-  $('catalog-list').innerHTML = visible.length ? visible.map(row => { const enabled = !disabled.has(canonicalModel(row.id)); return `<div class="catalog-row"><div><code>${escapeHTML(row.id)}</code><p>${row.available ? (enabled ? '可供外部访问' : '仅限本地访问') : '当前代理未提供，仍保持关闭'}</p></div><button type="button" class="model-switch" role="switch" aria-checked="${enabled}" aria-label="${escapeHTML(row.id)} 外部访问" data-modelid="${escapeHTML(row.id)}" ${pending ? 'disabled' : ''}><span></span></button></div>`; }).join('') : `<div class="empty">${query ? '没有匹配的模型' : '点击「从代理获取」加载模型'}</div>`;
+  if(replaceContent($('catalog-summary'),snapshot.config.modelsUpdatedAt ? descriptionRows([['模型总数',known.length],['对外开放',open],['更新时间',new Date(snapshot.config.modelsUpdatedAt).toLocaleString('zh-CN',{hour12:false})]]) : '从本地代理获取可用模型')) reveal($('catalog-summary'));
+  const catalogHTML = visible.length ? visible.map(row => { const enabled = !disabled.has(canonicalModel(row.id)); return `<div class="catalog-row"><div><code>${escapeHTML(row.id)}</code><p>${row.available ? (enabled ? '可供外部访问' : '仅限本地访问') : '当前代理未提供，仍保持关闭'}</p></div><button type="button" class="model-switch" role="switch" aria-checked="${enabled}" aria-label="${escapeHTML(row.id)} 外部访问" data-modelid="${escapeHTML(row.id)}" ${pending ? 'disabled' : ''}><span></span></button></div>`; }).join('') : `<div class="empty">${query ? '没有匹配的模型' : '点击「从代理获取」加载模型'}</div>`;
+  reconcileRows($('catalog-list'),catalogHTML,row=>row.querySelector('[data-modelid]')?.dataset.modelid || `empty:${row.textContent}`,(row,next)=>{
+    const control=row.querySelector('[data-modelid]'), incoming=next.querySelector('[data-modelid]');
+    if(!control) return;
+    control.setAttribute('aria-checked',incoming.getAttribute('aria-checked')); control.disabled=incoming.disabled;
+    const detail=row.querySelector('p'), text=next.querySelector('p').textContent;
+    if(detail.textContent!==text) {detail.textContent=text;reveal(detail);}
+  });
   $('catalog-list').querySelectorAll('[data-modelid]').forEach(button => button.onclick = async () => {
     await task(button, async () => { render(await call('setModelAccess', { model:button.dataset.modelid, enabled:button.getAttribute('aria-checked') !== 'true' })); toast('模型访问设置已保存'); });
     renderModelCatalog();
