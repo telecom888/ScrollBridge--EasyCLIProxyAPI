@@ -68,6 +68,54 @@ test('image switch defaults off and rejects non-boolean settings',()=>{
   assert.equal(validateConfig({imagesEnabled:true}).imagesEnabled,true);
   assert.throws(()=>validateConfig({imagesEnabled:'true'}));
 });
+test('RikkaHub Gemini generation converts JSON and compressed requests with live opt-in',async t=>{
+  let enabled=false;const seen=[];
+  const image=Buffer.from('test-image').toString('base64');
+  const {base,records}=await fixture(t,(req,res)=>{
+    const chunks=[];req.on('data',c=>chunks.push(c));req.on('end',()=>{
+      seen.push({path:req.url,headers:req.headers,body:JSON.parse(Buffer.concat(chunks))});
+      res.setHeader('content-type','application/json');
+      res.end(req.url.includes('/v1beta/')?JSON.stringify({candidates:[{content:{parts:[{thought:true,inlineData:{mimeType:'image/png',data:'dGhvdWdodA=='}},{inlineData:{mimeType:'image/png',data:image}}]}}]}):'{"passthrough":true}');
+    });
+  },{getImagesEnabled:()=>true,getGeminiImageCompatibility:()=>enabled});
+  const payload=JSON.stringify({model:'gemini-3.1-flash-image',prompt:'PRIVATE_PROMPT',n:1,size:'1024x1024'});
+  let r=await fetch(base+'/v1/images/generations',{method:'POST',headers:auth,body:payload});assert.equal((await r.json()).passthrough,true);
+  enabled=true;
+  r=await fetch(base+'/v1/images/generations',{method:'POST',headers:{...auth,'content-encoding':'gzip','content-type':'application/json'},body:zlib.gzipSync(payload)});
+  assert.equal(r.status,200);const result=await r.json();assert.deepEqual(result.data,[{b64_json:image,output_format:'png'}]);
+  assert.equal(seen.at(-1).path,'/v1beta/models/gemini-3.1-flash-image:generateContent');
+  assert.equal(seen.at(-1).headers.authorization,`Bearer ${UPSTREAM_KEY}`);assert.equal(seen.at(-1).headers['content-encoding'],undefined);
+  assert.deepEqual(seen.at(-1).body.generationConfig,{responseModalities:['TEXT','IMAGE'],imageConfig:{aspectRatio:'1:1',imageSize:'1K'}});
+  assert.equal(records.at(-1).model,'gemini-3.1-flash-image');assert.ok(!JSON.stringify(records).includes('PRIVATE_PROMPT'));
+  r=await fetch(base+'/v1/images/generations',{method:'POST',headers:auth,body:'{"model":"gpt-image-2","prompt":"test"}'});assert.equal((await r.json()).passthrough,true);
+});
+test('Gemini image conversion enforces both endpoint and model policy',async t=>{
+  let calls=0,open=false;
+  const {base}=await fixture(t,(_,res)=>{calls++;res.end('{}');},{getImagesEnabled:()=>open,getGeminiImageCompatibility:()=>true,getDisabledModels:()=>['gemini-3.1-flash-image']});
+  const send=()=>fetch(base+'/v1/images/generations',{method:'POST',headers:auth,body:'{"model":"gemini-3.1-flash-image","prompt":"test"}'});
+  assert.equal((await send()).status,404);open=true;assert.equal((await send()).status,403);assert.equal(calls,0);
+});
+test('Gemini image edits convert RikkaHub multipart reference images without fetching URLs',async t=>{
+  let seen;
+  const {base}=await fixture(t,(req,res)=>{const chunks=[];req.on('data',c=>chunks.push(c));req.on('end',()=>{seen=JSON.parse(Buffer.concat(chunks));res.end('{"candidates":[{"content":{"parts":[{"inline_data":{"mime_type":"image/webp","data":"aW1hZ2U="}}]}}]}');});},{getImagesEnabled:()=>true,getGeminiImageCompatibility:()=>true});
+  const form=new FormData();form.set('model','gemini-3.1-flash-image');form.set('prompt','Edit reference');form.set('n','1');form.set('size','auto');form.append('image',new Blob([Buffer.from([0,255,128,13,10])],{type:'image/png'}),'test.png');
+  let r=await fetch(base+'/v1/images/edits',{method:'POST',headers:auth,body:form});assert.equal(r.status,200);assert.equal((await r.json()).data[0].output_format,'webp');
+  assert.deepEqual(Buffer.from(seen.contents[0].parts[1].inlineData.data,'base64'),Buffer.from([0,255,128,13,10]));
+  for(const body of [{model:'gemini-3.1-flash-image',prompt:'test',image:'http://127.0.0.1/private'},{model:'gemini-3.1-flash-image',prompt:'test',mask:'data:...'}]){
+    r=await fetch(base+'/v1/images/edits',{method:'POST',headers:auth,body:JSON.stringify(body)});assert.equal(r.status,400);await r.text();
+  }
+});
+test('Gemini image errors preserve upstream status and cancellation aborts generation',async t=>{
+  let abortResolve;const aborted=new Promise(resolve=>abortResolve=resolve);
+  const {base}=await fixture(t,(req,res)=>{
+    if(req.url.includes('quota')){res.writeHead(429,{'content-type':'application/json'});res.end('{"error":{"message":"Quota exhausted"}}');}
+    else {req.resume();res.on('close',abortResolve);res.writeHead(200,{'content-type':'application/json'});res.write('{');}
+  },{getImagesEnabled:()=>true,getGeminiImageCompatibility:()=>true});
+  let r=await fetch(base+'/v1/images/generations',{method:'POST',headers:auth,body:'{"model":"gemini-quota-image","prompt":"test"}'});assert.equal(r.status,429);assert.match(await r.text(),/Quota exhausted/);
+  const controller=new AbortController();const pending=fetch(base+'/v1/images/generations',{method:'POST',headers:auth,body:'{"model":"gemini-3.1-flash-image","prompt":"test"}',signal:controller.signal});
+  const reject=assert.rejects(pending);setTimeout(()=>controller.abort(),100);
+  await reject;await Promise.race([aborted,new Promise((_,reject)=>setTimeout(()=>reject(Error('Generation not cancelled')),2000))]);
+});
 test('configuration only allows loopback origin and non-recursive gateway', () => {
   for (const upstream of ['http://example.com','file:///etc/passwd','http://127.0.0.1/path','http://u:p@localhost','http://127.0.0.1?key=x']) assert.throws(() => validateConfig({upstream}));
   assert.throws(() => validateConfig({hostname:'test.com/path'})); assert.throws(() => validateConfig({port:8317}));

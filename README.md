@@ -4,7 +4,7 @@
 
 ## 启动
 
-双击 `release/ScrollBridge-0.1.4-win-x64.exe`，无需安装 Node.js、管理员权限或开放入站端口。保持原代理工具运行。
+双击 `release/ScrollBridge-0.1.5-win-x64.exe`，无需安装 Node.js、管理员权限或开放入站端口。保持原代理工具运行。
 
 连接运行时，点击锁定的配置项会提示「请先停止连接再修改配置」。停止连接后即可编辑。
 
@@ -33,6 +33,16 @@
 仍使用卷桥访问密钥，必须显式填写 `model`，并在「模型」页允许该模型外部访问。请求上限 32 MiB；日志记录模型 ID，不记录提示词、图片或正文。实际可用模型和生成能力取决于本地代理及上游供应商。
 
 401 表示未通过卷桥访问密钥验证；图像开关关闭时返回 404 并提示开启设置；模型被禁用时返回 403。开关开启后，上游返回的状态码与生成结果原样转发。
+
+### RikkaHub 与 Gemini 图像生成兼容
+
+在「设置 → 接口」同时开启「图像接口」和「Gemini 图像生成兼容」。兼容开关默认关闭、自动保存，运行中可修改。RikkaHub 保持 OpenAI 协议，Base URL 为 `https://你的域名/v1`，模型选择本地代理实际提供的 Gemini 图像模型 ID，例如 `gemini-3.1-flash-image`。外部访问权限仍由「模型」页控制。
+
+识别 `gemini-...image...` 模型的生成与编辑请求，将其转为本地代理 `/v1beta/models/{model}:generateContent`，把最终图片转成 OpenAI `data[].b64_json`（附实际 output_format）返回。GPT、Grok 等模型保持原始透传。参考图支持 PNG、JPEG、WebP multipart 上传或 JSON base64 data URL；不下载远程 URL，不保存图片或提示词，不返回中间思考图片。转换调用不重试。
+
+每次支持 1–4 张，按数量依次向上游请求；任一张失败时返回错误，已生成图片可能已消耗额度。尺寸为 auto、1K、2K、4K 或常用像素宽高；宽高映射为 Gemini 比例与清晰度档位，不保证精确像素。响应只提供 b64_json，单次响应最多 64 MiB。遮罩、透明背景、质量等级和格式转换等不兼容选项会明确报错；省略这些参数即可。上游模型能力、额度及图片审核仍适用。
+
+实现依据：RikkaHub `5203601f79e61d63a56efb3d277d4e79e25bcc39` 的 OpenAIProvider 与媒体适配器；[Google 图像生成文档](https://ai.google.dev/gemini-api/docs/generate-content/image-generation)。
 
 ## 连通性检测
 

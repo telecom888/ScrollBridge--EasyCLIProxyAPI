@@ -72,7 +72,7 @@ const actions = {
     state('starting');
     try {
       await probe(`${config.upstream}/v1/models`, secrets.upstreamKey);
-      gateway = await startGateway(config, secrets, record => { records.unshift(record); records = records.slice(0, 200); publish(); }, { getDisabledModels: () => config.disabledModels, getImagesEnabled: () => config.imagesEnabled });
+      gateway = await startGateway(config, secrets, record => { records.unshift(record); records = records.slice(0, 200); publish(); }, { getDisabledModels: () => config.disabledModels, getImagesEnabled: () => config.imagesEnabled, getGeminiImageCompatibility: () => config.geminiImageCompatibility });
       const executable = app.isPackaged ? path.join(process.resourcesPath, 'vendor', 'cloudflared.exe') : path.join(app.getAppPath(), 'vendor', 'cloudflared.exe');
       tunnel = startTunnel({ executable, token: secrets.tunnelToken, protocol: config.protocol, runtimeDir: path.join(app.getPath('userData'), 'runtime'), onState: state, onLog: log });
       log('网关已启动，等待隧道连接');

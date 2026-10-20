@@ -48,6 +48,7 @@ function render(s) {
   for (const id of lockedControls) { $(id).disabled = running; lockHints.get(id).hidden = !running; }
   $('route-upstream').textContent = s.config.upstream.replace(/^https?:\/\//,''); $('route-host').textContent = s.config.hostname || '尚未配置'; $('public-base').textContent = s.config.hostname ? `https://${s.config.hostname}` : '请先配置域名'; $('origin-service').textContent = `http://127.0.0.1:${s.config.port}`;
   $('imagesEnabled').checked = s.config.imagesEnabled;
+  $('geminiImageCompatibility').checked = s.config.geminiImageCompatibility;
   renderDiagnosticModels();
   $('version').textContent = `v${s.version}`; $('saved-indicator').textContent = dirty ? '尚未保存' : '配置已保存'; renderExample(); renderRecords(); renderDiagnostics(); renderModelCatalog();
 }
@@ -91,6 +92,7 @@ $('theme-toggle').onclick = () => task(null, () => changeSetting({theme:document
 document.querySelectorAll('[data-theme]').forEach(el => el.onclick = () => task(el, () => changeSetting({theme:el.dataset.theme})));
 $('transport').onchange = () => task(null, () => changeSetting({protocol:$('transport').value})); $('launchAtLogin').onchange = () => task(null, () => changeSetting({launchAtLogin:$('launchAtLogin').checked}));
 $('imagesEnabled').onchange = () => task($('imagesEnabled'), async () => { try { await changeSetting({imagesEnabled:$('imagesEnabled').checked}); } finally { render(await call('snapshot')); } });
+$('geminiImageCompatibility').onchange = () => task($('geminiImageCompatibility'), async () => { try { await changeSetting({geminiImageCompatibility:$('geminiImageCompatibility').checked}); } finally { render(await call('snapshot')); } });
 $('diagnostic-model').onchange = () => task($('diagnostic-model'), async () => { try { await changeSetting({diagnosticModel:$('diagnostic-model').value}); } finally { render(await call('snapshot')); } });
 $('refresh-diagnostic-models').onclick = () => task($('refresh-diagnostic-models'), async () => { if(dirty) await saveForm(); render(await call('refreshModels')); toast('模型列表已更新'); });
 function renderDiagnosticModels() {
