@@ -47,6 +47,7 @@ function render(s) {
   $('connect-label').textContent = running ? '停止连接' : (s.status === 'error' ? '停止并重置' : '启动连接'); $('connect').querySelector('[data-icon]').innerHTML = icon(running || s.status === 'error' ? 'stop' : 'play');
   for (const id of lockedControls) { $(id).disabled = running; lockHints.get(id).hidden = !running; }
   $('route-upstream').textContent = s.config.upstream.replace(/^https?:\/\//,''); $('route-host').textContent = s.config.hostname || '尚未配置'; $('public-base').textContent = s.config.hostname ? `https://${s.config.hostname}` : '请先配置域名'; $('origin-service').textContent = `http://127.0.0.1:${s.config.port}`;
+  $('imagesEnabled').checked = s.config.imagesEnabled;
   $('version').textContent = `v${s.version}`; $('saved-indicator').textContent = dirty ? '尚未保存' : '配置已保存'; renderExample(); renderRecords(); renderDiagnostics(); renderModelCatalog();
 }
 for (const id of ['upstream','port','hostname','upstreamKey','tunnelToken']) $(id).addEventListener('input', () => { dirty = true; $('saved-indicator').textContent = '尚未保存'; });
@@ -88,6 +89,7 @@ async function changeSetting(patch) { const s = await call('save', {config:patch
 $('theme-toggle').onclick = () => task(null, () => changeSetting({theme:document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'}));
 document.querySelectorAll('[data-theme]').forEach(el => el.onclick = () => task(el, () => changeSetting({theme:el.dataset.theme})));
 $('transport').onchange = () => task(null, () => changeSetting({protocol:$('transport').value})); $('launchAtLogin').onchange = () => task(null, () => changeSetting({launchAtLogin:$('launchAtLogin').checked}));
+$('imagesEnabled').onchange = () => task($('imagesEnabled'), async () => { try { await changeSetting({imagesEnabled:$('imagesEnabled').checked}); } finally { render(await call('snapshot')); } });
 document.querySelectorAll('[data-bind-tab]').forEach(el => el.onclick = () => { document.querySelectorAll('[data-bind-tab]').forEach(b => b.classList.toggle('active', b === el)); $('manual-binding').hidden = el.dataset.bindTab !== 'manual'; $('automatic-binding').hidden = el.dataset.bindTab !== 'automatic'; });
 $('automatic-binding').onsubmit = e => { e.preventDefault(); task(e.submitter, async () => { if (dirty) { toast('请先返回连接页保存域名', true); return; } try { const r = await call('bind', {apiToken:$('cf-token').value,accountId:$('cf-account').value.trim(),zoneId:$('cf-zone').value.trim()}); render(await call('snapshot')); toast(r.message); } finally { $('cf-token').value = ''; } }); };
 for (const [id, action] of [['cloudflare','openCloudflare'],['guide','openGuide'],['open-data','openData']]) $(id).onclick = () => task(null, () => call(action));

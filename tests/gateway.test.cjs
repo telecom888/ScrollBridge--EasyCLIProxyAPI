@@ -14,6 +14,60 @@ async function fixture(t, handler, options = {}) {
   return {upstream,base:`http://127.0.0.1:${port}`,records};
 }
 const auth = {authorization:`Bearer ${KEY}`};
+test('image endpoints require authentication and explicit opt-in, with live changes', async t => {
+  let enabled = false, calls = 0;
+  const {base,records} = await fixture(t, (req,res) => { calls++; req.resume(); res.end('{"data":[]}'); }, {getImagesEnabled:()=>enabled});
+  for (const path of ['/v1/images/generations','/v1/images/edits']) {
+    const send = headers => fetch(base+path,{method:'POST',headers,body:'{"model":"image-test"}'});
+    assert.equal((await send({})).status,401);
+    const disabled = await send(auth); assert.equal(disabled.status,404); assert.match(await disabled.text(),/disabled/);
+    enabled = true; const open = await send(auth); assert.equal(open.status,200); await open.text();
+    assert.equal(records.at(-1).model,'image-test');
+    enabled = false;
+  }
+  assert.equal(calls,2);
+});
+test('image JSON bodies preserve bytes and enforce model permissions and required model', async t => {
+  let calls = 0;
+  const payload = '{ "model": "image-test", "prompt": "PRIVATE_IMAGE_PROMPT", "size":"1024x1024" }';
+  const zipped = zlib.gzipSync(payload);
+  const {base,records} = await fixture(t, (req,res) => {
+    calls++; const chunks=[]; req.on('data',c=>chunks.push(c)); req.on('end',()=>{
+      assert.deepEqual(Buffer.concat(chunks),zipped); assert.equal(req.headers['content-encoding'],'gzip');
+      assert.equal(req.headers.authorization,`Bearer ${UPSTREAM_KEY}`);res.end('{}');
+    });
+  }, {getImagesEnabled:()=>true,getDisabledModels:()=>['blocked']});
+  for (const path of ['/v1/images/generations','/v1/images/edits']) {
+    const r=await fetch(base+path,{method:'POST',headers:{...auth,'content-type':'application/json','content-encoding':'gzip'},body:zipped});
+    assert.equal(r.status,200);await r.text();
+    for (const [body,status] of [['{"model":"blocked"}',403],['{"prompt":"test"}',400],['invalid',400]]) {
+      const bad=await fetch(base+path,{method:'POST',headers:auth,body});assert.equal(bad.status,status);await bad.text();
+    }
+  }
+  assert.equal(calls,2);assert.ok(!JSON.stringify(records).includes('PRIVATE_IMAGE_PROMPT'));
+});
+test('multipart image edits preserve binary uploads, log model and reject ambiguous models', async t => {
+  let calls=0, expected;
+  const {base,records}=await fixture(t,(req,res)=>{
+    calls++;const chunks=[];req.on('data',c=>chunks.push(c));req.on('end',()=>{assert.deepEqual(Buffer.concat(chunks),expected);res.end('{}');});
+  },{getImagesEnabled:()=>true,getDisabledModels:()=>['blocked']});
+  function form(models=['image-test'],fileModel=false) {
+    const parts=models.map(model=>Buffer.from(`--test-boundary\r\nContent-Disposition: form-data; name="model"\r\n\r\n${model}\r\n`));
+    parts.push(Buffer.from(`--test-boundary\r\nContent-Disposition: form-data; name="${fileModel?'model':'image'}"; filename="image.png"\r\nContent-Type: image/png\r\n\r\n`),Buffer.from([0,255,128,1,13,10]),Buffer.from('\r\n--test-boundary--\r\n'));
+    return Buffer.concat(parts);
+  }
+  const send=body=>fetch(base+'/v1/images/edits',{method:'POST',headers:{...auth,'content-type':'multipart/form-data; boundary=test-boundary'},body});
+  expected=form();let r=await send(expected);assert.equal(r.status,200);await r.text();assert.equal(records.at(-1).model,'image-test');
+  for(const [body,status] of [[form(['blocked']),403],[form([]),400],[form(['image-test','blocked']),400],[form(['blocked','image-test']),400],[form(['image-test'],true),400],[Buffer.from('broken'),400]]) {
+    r=await send(body);assert.equal(r.status,status);await r.text();
+  }
+  assert.equal(calls,1);
+});
+test('image switch defaults off and rejects non-boolean settings',()=>{
+  assert.equal(validateConfig({}).imagesEnabled,false);
+  assert.equal(validateConfig({imagesEnabled:true}).imagesEnabled,true);
+  assert.throws(()=>validateConfig({imagesEnabled:'true'}));
+});
 test('configuration only allows loopback origin and non-recursive gateway', () => {
   for (const upstream of ['http://example.com','file:///etc/passwd','http://127.0.0.1/path','http://u:p@localhost','http://127.0.0.1?key=x']) assert.throws(() => validateConfig({upstream}));
   assert.throws(() => validateConfig({hostname:'test.com/path'})); assert.throws(() => validateConfig({port:8317}));
