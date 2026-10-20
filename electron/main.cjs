@@ -8,6 +8,7 @@ const { startGateway } = require('../lib/gateway.cjs');
 const { startTunnel } = require('../lib/tunnel.cjs');
 const { provision } = require('../lib/cloudflare.cjs');
 const {localCheck,publicCheck}=require('../lib/diagnostics.cjs');
+const {fetchModels,modelKey,modelName}=require('../lib/models.cjs');
 app.setName('ScrollBridge');
 if (process.env.SCROLLBRIDGE_TEST_DATA) { fs.mkdirSync(process.env.SCROLLBRIDGE_TEST_DATA, {recursive:true}); app.setPath('userData', process.env.SCROLLBRIDGE_TEST_DATA); }
 if (!app.requestSingleInstanceLock()) app.quit();
@@ -50,13 +51,27 @@ const actions = {
   copy: text => { if (typeof text !== 'string' || text.length > 50000) throw new Error('复制内容无效'); clipboard.writeText(text); return true; },
   testLocal: async () => {localDiagnostic=await localCheck(config,secrets);publish();return localDiagnostic;},
   testPublic: async () => {publicDiagnostic=await publicCheck(config,secrets);publish();return publicDiagnostic;},
+  refreshModels: async () => {
+    const knownModels = await fetchModels(config, secrets);
+    const next = validateConfig({ ...config, knownModels, modelsUpdatedAt: new Date().toISOString() });
+    store.save(next, secrets); config = next; publish(); return view();
+  },
+  setModelAccess: payload => {
+    if (!payload || !modelName(payload.model) || typeof payload.enabled !== 'boolean') throw new Error('模型设置无效');
+    const key = modelKey(payload.model);
+    if (!config.knownModels.some(id => modelKey(id) === key) && !config.disabledModels.includes(key)) throw new Error('请先从本地代理获取该模型');
+    const disabled = new Set(config.disabledModels);
+    if (payload.enabled) disabled.delete(key); else disabled.add(key);
+    const next = validateConfig({ ...config, disabledModels: [...disabled] });
+    store.save(next, secrets); config = next; publicDiagnostic = null; publish(); return view();
+  },
   start: async () => {
     if (gateway || tunnel) throw new Error('连接已启动');
     if (!config.hostname || !secrets.tunnelToken) throw new Error('请先填写域名和隧道令牌');
     state('starting');
     try {
       await probe(`${config.upstream}/v1/models`, secrets.upstreamKey);
-      gateway = await startGateway(config, secrets, record => { records.unshift(record); records = records.slice(0, 200); publish(); });
+      gateway = await startGateway(config, secrets, record => { records.unshift(record); records = records.slice(0, 200); publish(); }, { getDisabledModels: () => config.disabledModels });
       const executable = app.isPackaged ? path.join(process.resourcesPath, 'vendor', 'cloudflared.exe') : path.join(app.getAppPath(), 'vendor', 'cloudflared.exe');
       tunnel = startTunnel({ executable, token: secrets.tunnelToken, protocol: config.protocol, runtimeDir: path.join(app.getPath('userData'), 'runtime'), onState: state, onLog: log });
       log('网关已启动，等待隧道连接');
@@ -102,7 +117,7 @@ app.whenReady().then(async () => {
   try { fs.unlinkSync(path.join(app.getPath('userData'), 'runtime', 'tunnel-token')); } catch {}
   ipcMain.handle('bridge', async (event, action, payload) => {
     if (event.sender !== window?.webContents || event.senderFrame !== window.webContents.mainFrame || !Object.hasOwn(actions, action)) throw new Error('请求无效');
-    const mutation = ['save', 'start', 'stop', 'import', 'bind', 'rotateKey'].includes(action);
+    const mutation = ['save', 'start', 'stop', 'import', 'bind', 'rotateKey', 'refreshModels', 'setModelAccess'].includes(action);
     if (mutation && busy) throw new Error('请等待当前操作完成');
     if (mutation) busy = true;
     try { return await actions[action](payload); } catch (e) { throw new Error(e.message); } finally { if (mutation) busy = false; }

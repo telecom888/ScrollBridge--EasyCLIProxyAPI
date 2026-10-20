@@ -11,10 +11,11 @@
   <nav aria-label="主导航">
     <button class="nav active" data-page="connection"><span data-icon="plug"></span>连接</button>
     <button class="nav" data-page="access"><span data-icon="code"></span>接入</button>
+    <button class="nav" data-page="catalog"><span data-icon="models"></span>模型</button>
     <button class="nav" data-page="records"><span data-icon="file"></span>记录</button>
     <button class="nav" data-page="settings"><span data-icon="settings"></span>设置</button>
   </nav>
-  <div class="sidebar-foot"><span class="tiny-dot"></span>本机运行<small id="version">v0.1.1</small></div>
+  <div class="sidebar-foot"><span class="tiny-dot"></span>本机运行<small id="version">v0.1.2</small></div>
 </aside>
 <main>
   <header><h1 id="page-title">连接</h1><div class="header-actions"><span id="saved-indicator">配置已保存</span><button class="icon-button" id="theme-toggle" title="切换深浅色" aria-label="切换深浅色"><span data-icon="moon"></span></button></div></header>
@@ -35,6 +36,10 @@
     <div class="panel compact"><span data-icon="lock"></span><p>外部客户端使用 HTTPS。管理面板、OAuth 与配置接口不会公开。</p></div>
   </section>
   <section id="page-records" class="page" hidden><div class="section-head"><div class="tabs" id="record-tabs"><button class="active" data-record-tab="requests">请求</button><button data-record-tab="tunnel">隧道</button></div><button id="clear-records" class="text-button">清空</button></div><div class="panel records-panel"><div id="requests-table"></div><div id="tunnel-logs" hidden></div></div><p class="note">仅保留本次运行的最近 200 条请求，不记录密钥、请求正文或查询参数。</p></section>
+  <section id="page-catalog" class="page" hidden>
+    <div class="panel"><div class="section-head"><div><h2>本地模型</h2><p id="catalog-summary" class="note">尚未获取</p></div><button id="refresh-models" class="secondary"><span data-icon="download"></span>从代理获取</button></div><input id="model-search" type="search" placeholder="搜索模型" aria-label="搜索模型" spellcheck="false"><div id="catalog-list" class="catalog-list"></div></div>
+    <p class="note">开关自动保存，对后续外部请求立即生效。关闭的模型会从外部列表隐藏，直接调用也会被拒绝。首次获取和新发现的模型默认开放。</p>
+  </section>
   <section id="page-settings" class="page" hidden>
     <div class="panel"><h2>外观</h2><div class="theme-options"><button data-theme="light"><span class="theme-preview light-preview"></span>浅色</button><button data-theme="dark"><span class="theme-preview dark-preview"></span>深色</button><button data-theme="system"><span class="theme-preview system-preview"></span>跟随系统</button></div></div>
     <div class="panel"><h2>连接</h2><div class="setting-row"><div><strong>隧道传输</strong><p>自动选择；网络限制 UDP 时可使用 HTTP/2</p></div><select id="transport"><option value="auto">自动</option><option value="http2">HTTP/2</option><option value="quic">QUIC</option></select></div><div class="setting-row"><div><strong>开机启动</strong><p>启动应用后手动连接</p></div><input id="launchAtLogin" type="checkbox" role="switch" aria-label="开机启动"></div></div>

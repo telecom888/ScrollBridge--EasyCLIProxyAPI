@@ -1,0 +1,40 @@
+const { _electron: electron } = require('playwright');
+const http = require('node:http');
+const fs = require('node:fs');
+const path = require('node:path');
+const { once } = require('node:events');
+const assert = require('node:assert/strict');
+(async () => {
+  const fixture = http.createServer((req, res) => { res.setHeader('content-type', 'application/json'); res.end(JSON.stringify({ data: [{ id: 'gemini-test' }, { id: 'claude-test' }, { id: 'openai-test' }] })); });
+  fixture.listen(0, '127.0.0.1'); await once(fixture, 'listening');
+  const profile = path.resolve(`.test-output/models-${Date.now()}`); fs.mkdirSync(profile, { recursive: true });
+  const env = { ...process.env, SCROLLBRIDGE_TEST_DATA: profile }; delete env.ELECTRON_RUN_AS_NODE;
+  const launch = () => electron.launch({ executablePath: process.argv[2] || require('electron'), args: process.argv[2] ? [] : ['.'], env });
+  let app;
+  try {
+    app = await launch(); await app.evaluate(({ app }) => { app.setLoginItemSettings = () => {}; });
+    let page = await app.firstWindow(); await page.waitForFunction(() => !!window.bridge);
+    await page.evaluate(upstream => window.bridge.invoke('save', { config: { upstream } }), `http://127.0.0.1:${fixture.address().port}`);
+    assert.deepEqual(await page.locator('.nav').evaluateAll(nodes => nodes.map(n => n.textContent.trim())), ['连接', '接入', '模型', '记录', '设置']);
+    await page.click('[data-page=catalog]'); await page.click('#refresh-models');
+    await page.waitForFunction(() => !pending && snapshot.config.knownModels.length === 3);
+    await page.locator('[data-modelid="claude-test"]').click();
+    await page.waitForFunction(() => !pending && snapshot.config.disabledModels.includes('claude-test'));
+    assert.equal(await page.locator('[data-modelid="claude-test"]').getAttribute('aria-checked'), 'false');
+    await page.fill('#model-search', 'gemini'); assert.equal(await page.locator('.catalog-row').count(), 1); await page.fill('#model-search', '');
+    await page.screenshot({ path: path.resolve('.test-output/models-light.png'), fullPage: true });
+    const current = await page.evaluate(() => window.bridge.invoke('snapshot'));
+    await page.evaluate(s => render({ ...s, status: 'connected', gatewayRunning: true }), current);
+    await page.locator('[data-modelid="openai-test"]').click();
+    await page.waitForFunction(() => !pending && snapshot.config.disabledModels.includes('openai-test'));
+    await page.click('[data-page=records]');
+    await page.evaluate(s => render({ ...s, records: [{ time: new Date().toISOString(), method: 'POST', path: '/v1/messages', model: 'claude-test', status: 403, ms: 1 }] }), await page.evaluate(() => window.bridge.invoke('snapshot')));
+    assert.match(await page.locator('#requests-table').innerText(), /模型[\s\S]*claude-test/);
+    await app.close(); app = await launch(); page = await app.firstWindow(); await page.waitForFunction(() => !!window.bridge);
+    const restored = await page.evaluate(() => window.bridge.invoke('snapshot'));
+    assert.deepEqual(restored.config.disabledModels.sort(), ['claude-test', 'openai-test']);
+    assert.equal(restored.config.knownModels.length, 3);
+    await page.click('[data-page=catalog]'); assert.equal(await page.locator('[aria-checked=false][data-modelid]').count(), 2);
+    console.log('Model discovery, sidebar order, search, live toggles, model log column and restart persistence passed');
+  } finally { if (app) await app.close(); await new Promise(resolve => fixture.close(resolve)); }
+})().catch(error => { console.error(error); process.exitCode = 1; });
