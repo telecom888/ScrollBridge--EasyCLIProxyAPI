@@ -11,7 +11,7 @@ const assert = require('node:assert/strict');
   try {
     const window = await app.firstWindow(); await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].show()); await window.waitForSelector('#status-title');
     const errors=[]; window.on('pageerror',e=>errors.push(e.message));
-    await window.waitForFunction(()=>!!window.bridge && document.querySelector('#version').textContent === 'v0.1.0');
+    await window.waitForFunction(version=>!!window.bridge && document.querySelector('#version').textContent === `v${version}`,require('../package.json').version);
     assert.equal(await window.locator('#status-title').innerText(),'未连接');
     await window.click('[data-page=settings]'); await window.click('[data-theme=light]'); await window.click('[data-page=connection]'); await window.locator('#toast').waitFor({state:'hidden'}); await window.waitForTimeout(300);
     await window.screenshot({path:path.join(out,'connection-light.png'),fullPage:true});

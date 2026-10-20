@@ -17,6 +17,19 @@ document.querySelectorAll('[data-protocol]').forEach(el => { const mark=el.query
 let snapshot, dirty = false, currentPage = 'connection', currentProtocol = 'openai', pending = false;
 let toastTimer;
 function toast(message, error = false) { $('toast').textContent = message; $('toast').className = error ? 'error' : ''; $('toast').hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => $('toast').hidden = true, error ? 8000 : 3500); }
+const lockedControls = ['upstream','port','hostname','upstreamKey','tunnelToken','import','transport','launchAtLogin'];
+const lockHints = new Map();
+for (const id of lockedControls) {
+  const control = $(id), wrapper = document.createElement('span'), hint = document.createElement('button');
+  wrapper.className = 'config-lock-wrap';
+  control.before(wrapper); wrapper.append(control);
+  hint.type = 'button'; hint.className = 'config-lock-hint'; hint.hidden = true; hint.dataset.lockedFor = id;
+  hint.setAttribute('aria-label', '请先停止连接再修改配置'); hint.title = '请先停止连接再修改配置';
+  hint.onclick = event => { event.preventDefault(); event.stopPropagation(); toast('请先停止连接再修改配置'); };
+  wrapper.append(hint); lockHints.set(id, hint);
+  const label = control.closest('label');
+  if (label) label.addEventListener('click', event => { if (!hint.hidden) { event.preventDefault(); toast('请先停止连接再修改配置'); } });
+}
 async function call(action, payload) { try { return await window.bridge.invoke(action, payload); } catch (e) { const message = e.message.replace(/^Error invoking remote method '[^']+': Error: /, ''); toast(message, true); throw e; } }
 async function task(button, fn) { if (pending) return; pending = true; if (button) button.disabled = true; try { await fn(); } catch {} finally { pending = false; if (button) button.disabled = false; } }
 function page(name) { currentPage = name; document.querySelectorAll('.page').forEach(el => el.hidden = el.id !== `page-${name}`); document.querySelectorAll('.nav').forEach(el => el.classList.toggle('active', el.dataset.page === name)); $('page-title').textContent = {connection:'连接',access:'接入',records:'记录',settings:'设置'}[name]; }
@@ -31,7 +44,7 @@ function render(s) {
   $('status-dot').className = `status-dot ${s.status}`;
   const running = ['starting','connected','reconnecting'].includes(s.status) || s.gatewayRunning;
   $('connect-label').textContent = running ? '停止连接' : (s.status === 'error' ? '停止并重置' : '启动连接'); $('connect').querySelector('[data-icon]').innerHTML = icon(running || s.status === 'error' ? 'stop' : 'play');
-  for (const id of ['upstream','port','hostname','upstreamKey','tunnelToken','import','transport','launchAtLogin']) $(id).disabled = running;
+  for (const id of lockedControls) { $(id).disabled = running; lockHints.get(id).hidden = !running; }
   $('route-upstream').textContent = s.config.upstream.replace(/^https?:\/\//,''); $('route-host').textContent = s.config.hostname || '尚未配置'; $('public-base').textContent = s.config.hostname ? `https://${s.config.hostname}` : '请先配置域名'; $('origin-service').textContent = `http://127.0.0.1:${s.config.port}`;
   $('version').textContent = `v${s.version}`; $('saved-indicator').textContent = dirty ? '尚未保存' : '配置已保存'; renderExample(); renderRecords(); renderDiagnostics();
 }

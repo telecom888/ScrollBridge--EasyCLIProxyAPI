@@ -1,6 +1,6 @@
 const {spawn}=require('node:child_process');const fs=require('node:fs');const path=require('node:path');const assert=require('node:assert/strict');
 (async()=>{
-  const exe=path.resolve('release/ScrollBridge-0.1.0-win-x64.exe');const data=path.resolve(`.test-output/portable-${Date.now()}`);fs.mkdirSync(data,{recursive:true});
+  const exe=path.resolve(process.argv[2]||`release/ScrollBridge-${require('../package.json').version}-win-x64.exe`);const data=path.resolve(`.test-output/portable-${Date.now()}`);fs.mkdirSync(data,{recursive:true});
   const env={...process.env,SCROLLBRIDGE_SMOKE:'1',SCROLLBRIDGE_SMOKE_EXIT:'1',SCROLLBRIDGE_TEST_DATA:data};delete env.ELECTRON_RUN_AS_NODE;
   const child=spawn(exe,[],{env,windowsHide:true,stdio:'ignore'});let failure;child.on('error',e=>failure=e);
   const marker=path.join(data,'runtime-ready.json');const deadline=Date.now()+45000;
