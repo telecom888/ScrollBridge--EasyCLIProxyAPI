@@ -26,7 +26,7 @@ async function probe(url, key, isPublic = false) {
   const data = await r.json();
   if (isPublic && data.service !== 'scrollbridge') throw new Error('域名未指向卷桥网关');
   if (!isPublic && !Array.isArray(data.data)) throw new Error('本地服务没有返回 OpenAI 模型列表');
-  return isPublic ? { ok: true, message: '域名 HTTPS 和网关鉴权正常' } : { ok: true, message: `本地服务正常 · ${data.data.length} 个模型`, models: data.data.map(m => m.id).slice(0, 80) };
+  return isPublic ? { ok: true, message: '域名 HTTPS 和网关鉴权正常' } : { ok: true, message: `本地服务正常，提供 ${data.data.length} 个模型`, models: data.data.map(m => m.id).slice(0, 80) };
 }
 function save(payload = {}) {
   const next = validateConfig({ ...config, ...payload.config });
@@ -39,6 +39,7 @@ function save(payload = {}) {
   }
   validateAccessKey(nextSecrets.accessKey);
   store.save(next, nextSecrets); config = next; secrets = nextSecrets;
+  if (payload.config?.diagnosticModel !== undefined) publicDiagnostic = null;
   if (payload.config?.hostname !== undefined || payload.tunnelToken || payload.clearUpstreamKey || payload.upstreamKey || payload.config?.upstream !== undefined) {localDiagnostic=null;publicDiagnostic=null;}
   app.setLoginItemSettings({ openAtLogin: !!config.launchAtLogin, path: process.env.PORTABLE_EXECUTABLE_FILE || app.getPath('exe') });
   publish(); return view();
@@ -50,7 +51,7 @@ const actions = {
   rotateKey: () => { if (gateway) throw new Error('请先停止连接'); secrets.accessKey = createAccessKey(); store.save(config, secrets); return true; },
   copy: text => { if (typeof text !== 'string' || text.length > 50000) throw new Error('复制内容无效'); clipboard.writeText(text); return true; },
   testLocal: async () => {localDiagnostic=await localCheck(config,secrets);publish();return localDiagnostic;},
-  testPublic: async () => {publicDiagnostic=await publicCheck(config,secrets);publish();return publicDiagnostic;},
+  testPublic: async () => {publicDiagnostic=await publicCheck(config,secrets,{model:config.diagnosticModel});publish();return publicDiagnostic;},
   refreshModels: async () => {
     const knownModels = await fetchModels(config, secrets);
     const next = validateConfig({ ...config, knownModels, modelsUpdatedAt: new Date().toISOString() });
@@ -124,7 +125,7 @@ app.whenReady().then(async () => {
   });
   await createWindow();
   tray = new Tray(nativeImage.createFromPath(path.join(app.getAppPath(), 'ui', 'icon.png')));
-  tray.setToolTip('卷桥 · 模型服务连接'); tray.on('double-click', () => window.show());
+  tray.setToolTip('卷桥模型服务连接'); tray.on('double-click', () => window.show());
   tray.setContextMenu(Menu.buildFromTemplate([{ label: '打开卷桥', click: () => { window.show(); window.focus(); } }, { label: '停止连接', click: stop }, { type: 'separator' }, { label: '退出', click: () => { closing = true; app.quit(); } }]));
   if (process.env.SCROLLBRIDGE_SMOKE === '1') {
     await window.webContents.executeJavaScript("document.documentElement.dataset.smoke = 'ready'");

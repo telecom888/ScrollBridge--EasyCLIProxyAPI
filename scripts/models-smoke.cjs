@@ -23,6 +23,10 @@ const assert = require('node:assert/strict');
     assert.deepEqual(await page.locator('.nav').evaluateAll(nodes => nodes.map(n => n.textContent.trim())), ['连接', '接入', '模型', '记录', '设置']);
     await page.click('[data-page=catalog]'); await page.click('#refresh-models');
     await page.waitForFunction(() => !pending && snapshot.config.knownModels.length === 3);
+    await page.click('[data-page=connection]');
+    await page.selectOption('#diagnostic-model','gemini-test');
+    await page.waitForFunction(()=>!pending&&snapshot.config.diagnosticModel==='gemini-test');
+    await page.click('[data-page=catalog]');
     await page.locator('[data-modelid="claude-test"]').click();
     await page.waitForFunction(() => !pending && snapshot.config.disabledModels.includes('claude-test'));
     assert.equal(await page.locator('[data-modelid="claude-test"]').getAttribute('aria-checked'), 'false');
@@ -43,6 +47,7 @@ const assert = require('node:assert/strict');
     assert.deepEqual(restored.config.disabledModels.sort(), ['claude-test', 'openai-test']);
     assert.equal(restored.config.knownModels.length, 3);
     assert.equal(restored.config.imagesEnabled,true);
+    assert.equal(restored.config.diagnosticModel,'gemini-test');
     await page.click('[data-page=catalog]'); assert.equal(await page.locator('[aria-checked=false][data-modelid]').count(), 2);
     console.log('Image switch and model controls: UI, live availability, logging and restart persistence passed');
   } finally { if (app) await app.close(); await new Promise(resolve => fixture.close(resolve)); }

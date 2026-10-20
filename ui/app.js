@@ -32,12 +32,12 @@ for (const id of lockedControls) {
   if (label) label.addEventListener('click', event => { if (!hint.hidden) { event.preventDefault(); toast('请先停止连接再修改配置'); } });
 }
 async function call(action, payload) { try { return await window.bridge.invoke(action, payload); } catch (e) { const message = e.message.replace(/^Error invoking remote method '[^']+': Error: /, ''); toast(message, true); throw e; } }
-async function task(button, fn) { if (pending) return; pending = true; if (button) button.disabled = true; try { await fn(); } catch {} finally { pending = false; if (button) button.disabled = false; } }
+async function task(button, fn) { if (pending) return; pending = true; if (button) button.disabled = true; try { await fn(); } catch {} finally { pending = false; if (button) button.disabled = false; if (snapshot) renderModelCatalog(); } }
 function page(name) { currentPage = name; document.querySelectorAll('.page').forEach(el => el.hidden = el.id !== `page-${name}`); document.querySelectorAll('.nav').forEach(el => el.classList.toggle('active', el.dataset.page === name)); $('page-title').textContent = {connection:'连接',access:'接入',catalog:'模型',records:'记录',settings:'设置'}[name]; }
 document.querySelectorAll('[data-page]').forEach(el => el.onclick = () => page(el.dataset.page));
 function applyTheme(theme) { const resolved = theme === 'system' ? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : theme; document.documentElement.dataset.theme = resolved; $('theme-toggle').innerHTML = icon(resolved === 'dark' ? 'sun' : 'moon'); document.querySelectorAll('[data-theme]').forEach(el => el.classList.toggle('active', el.dataset.theme === theme)); }
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { if (snapshot?.config.theme === 'system') applyTheme('system'); });
-function fillForm(s) { for (const k of ['upstream','port','hostname']) $(k).value = s.config[k]; $('upstreamKey').placeholder = s.hasUpstreamKey ? '已加密保存 · 留空保持不变' : '本地代理的客户端 API Key'; $('tunnelToken').placeholder = s.hasTunnelToken ? '已加密保存 · 留空保持不变' : '粘贴 eyJ 开头的令牌'; $('transport').value = s.config.protocol; $('launchAtLogin').checked = s.config.launchAtLogin; }
+function fillForm(s) { for (const k of ['upstream','port','hostname']) $(k).value = s.config[k]; $('upstreamKey').placeholder = s.hasUpstreamKey ? '已保存，留空则保持不变' : '本地代理的客户端 API Key'; $('tunnelToken').placeholder = s.hasTunnelToken ? '已保存，留空则保持不变' : '粘贴 eyJ 开头的令牌'; $('transport').value = s.config.protocol; $('launchAtLogin').checked = s.config.launchAtLogin; }
 function render(s) {
   snapshot = s; applyTheme(s.config.theme); if (!dirty) fillForm(s);
   const titles = { stopped:'未连接', starting:'正在连接', connected:'隧道已连接', reconnecting:'正在重连', error:'连接异常' };
@@ -48,6 +48,7 @@ function render(s) {
   for (const id of lockedControls) { $(id).disabled = running; lockHints.get(id).hidden = !running; }
   $('route-upstream').textContent = s.config.upstream.replace(/^https?:\/\//,''); $('route-host').textContent = s.config.hostname || '尚未配置'; $('public-base').textContent = s.config.hostname ? `https://${s.config.hostname}` : '请先配置域名'; $('origin-service').textContent = `http://127.0.0.1:${s.config.port}`;
   $('imagesEnabled').checked = s.config.imagesEnabled;
+  renderDiagnosticModels();
   $('version').textContent = `v${s.version}`; $('saved-indicator').textContent = dirty ? '尚未保存' : '配置已保存'; renderExample(); renderRecords(); renderDiagnostics(); renderModelCatalog();
 }
 for (const id of ['upstream','port','hostname','upstreamKey','tunnelToken']) $(id).addEventListener('input', () => { dirty = true; $('saved-indicator').textContent = '尚未保存'; });
@@ -90,13 +91,35 @@ $('theme-toggle').onclick = () => task(null, () => changeSetting({theme:document
 document.querySelectorAll('[data-theme]').forEach(el => el.onclick = () => task(el, () => changeSetting({theme:el.dataset.theme})));
 $('transport').onchange = () => task(null, () => changeSetting({protocol:$('transport').value})); $('launchAtLogin').onchange = () => task(null, () => changeSetting({launchAtLogin:$('launchAtLogin').checked}));
 $('imagesEnabled').onchange = () => task($('imagesEnabled'), async () => { try { await changeSetting({imagesEnabled:$('imagesEnabled').checked}); } finally { render(await call('snapshot')); } });
+$('diagnostic-model').onchange = () => task($('diagnostic-model'), async () => { try { await changeSetting({diagnosticModel:$('diagnostic-model').value}); } finally { render(await call('snapshot')); } });
+$('refresh-diagnostic-models').onclick = () => task($('refresh-diagnostic-models'), async () => { if(dirty) await saveForm(); render(await call('refreshModels')); toast('模型列表已更新'); });
+function renderDiagnosticModels() {
+  const select=$('diagnostic-model'), selected=snapshot.config.diagnosticModel || '';
+  const disabled=new Set(snapshot.config.disabledModels || []);
+  const available=[...new Set([...(snapshot.config.knownModels || []),...(snapshot.localDiagnostic?.models || [])])].filter(id=>!disabled.has(canonicalModel(id))).sort();
+  select.replaceChildren(new Option('自动选择', ''));
+  for(const id of available) select.add(new Option(id,id));
+  if(selected&&!available.includes(selected)) select.add(new Option(`当前不可用：${selected}`,selected));
+  select.value=selected;
+}
 document.querySelectorAll('[data-bind-tab]').forEach(el => el.onclick = () => { document.querySelectorAll('[data-bind-tab]').forEach(b => b.classList.toggle('active', b === el)); $('manual-binding').hidden = el.dataset.bindTab !== 'manual'; $('automatic-binding').hidden = el.dataset.bindTab !== 'automatic'; });
 $('automatic-binding').onsubmit = e => { e.preventDefault(); task(e.submitter, async () => { if (dirty) { toast('请先返回连接页保存域名', true); return; } try { const r = await call('bind', {apiToken:$('cf-token').value,accountId:$('cf-account').value.trim(),zoneId:$('cf-zone').value.trim()}); render(await call('snapshot')); toast(r.message); } finally { $('cf-token').value = ''; } }); };
 for (const [id, action] of [['cloudflare','openCloudflare'],['guide','openGuide'],['open-data','openData']]) $(id).onclick = () => task(null, () => call(action));
 document.querySelectorAll('[data-record-tab]').forEach(el => el.onclick = () => { document.querySelectorAll('[data-record-tab]').forEach(b => b.classList.toggle('active', b === el)); $('requests-table').hidden = el.dataset.recordTab !== 'requests'; $('tunnel-logs').hidden = el.dataset.recordTab !== 'tunnel'; });
 const escapeHTML = value => String(value).replace(/[&<>"']/g, x => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[x]));
 const time = value => new Date(value).toLocaleTimeString('zh-CN', {hour12:false});
-function renderDiagnostics(){for(const[name,data]of[['local',snapshot.localDiagnostic],['public',snapshot.publicDiagnostic]]){const summary=$(`${name}-diagnostic-summary`),steps=$(`${name}-diagnostic-steps`);summary.textContent=data?`${data.ok?'正常':'异常'} · ${time(data.checkedAt)}${data.ms!==undefined?' · '+data.ms+' ms':''}`:(name==='local'?'尚未检测':'通过公网域名发送一条短模型请求');summary.className=data?(data.ok?'diagnostic-ok':'diagnostic-error'):'';steps.innerHTML=data?data.steps.map(s=>`<div class="diagnostic-step"><span class="${s.ok?'diagnostic-ok':'diagnostic-error'}">${s.ok?'✓':'×'}</span><span>${escapeHTML(s.name)}</span><span>${escapeHTML(s.detail)}</span></div>`).join(''):'';}}
+function descriptionRows(items) { return `<dl class="information-list">${items.map(([label,value])=>`<div><dt>${escapeHTML(label)}</dt><dd>${escapeHTML(String(value))}</dd></div>`).join('')}</dl>`; }
+function renderDiagnostics() {
+  for (const [name,data] of [['local',snapshot.localDiagnostic],['public',snapshot.publicDiagnostic]]) {
+    const summary=$(`${name}-diagnostic-summary`),steps=$(`${name}-diagnostic-steps`);
+    summary.className='diagnostic-summary';
+    if (!data) { summary.textContent=name==='local'?'尚未检测':'通过公网域名发送一条短模型请求'; steps.replaceChildren(); continue; }
+    const metadata=[['检测时间',time(data.checkedAt)]];
+    if (data.ms!==undefined) metadata.push(['耗时',`${(data.ms/1000).toLocaleString('zh-CN',{maximumFractionDigits:2})} 秒`]);
+    summary.innerHTML=`<strong class="${data.ok?'diagnostic-ok':'diagnostic-error'}">${data.ok?'检测通过':'检测未通过'}</strong>${descriptionRows(metadata)}`;
+    steps.innerHTML=data.steps.map(s=>`<div class="diagnostic-step"><span class="${s.ok?'diagnostic-ok':'diagnostic-error'}">${s.ok?'✓':'×'}</span><span>${escapeHTML(s.name)}</span><div>${s.facts?descriptionRows(s.facts):`<p>${escapeHTML(s.detail)}</p>`}</div></div>`).join('');
+  }
+}
 function renderRecords() {
   $('requests-table').innerHTML = !snapshot.records.length ? `<div class="empty">${icon('file')}暂无请求</div>` : `<table><thead><tr><th>时间</th><th>方法</th><th>模型</th><th>路径</th><th>状态</th><th>耗时</th></tr></thead><tbody>${snapshot.records.map(r => `<tr><td>${time(r.time)}</td><td>${escapeHTML(r.method)}</td><td class="record-model">${escapeHTML(r.model || '—')}</td><td class="path">${escapeHTML(r.path)}</td><td><span class="status-pill ${r.status >= 400 ? 'bad' : ''}">${r.status}</span></td><td>${r.ms} ms</td></tr>`).join('')}</tbody></table>`;
   $('tunnel-logs').innerHTML = !snapshot.logs.length ? `<div class="empty">${icon('plug')}暂无隧道记录</div>` : snapshot.logs.map(l => `<div class="log-line"><time>${time(l.time)}</time><span>${escapeHTML(l.text)}</span></div>`).join('');
@@ -109,8 +132,8 @@ function renderModelCatalog() {
   const query = $('model-search').value.trim().toLowerCase();
   const visible = [...rows.values()].filter(row => row.id.toLowerCase().includes(query));
   const open = known.filter(id => !disabled.has(canonicalModel(id))).length;
-  $('catalog-summary').textContent = snapshot.config.modelsUpdatedAt ? `${known.length} 个模型 · ${open} 个开放 · 更新于 ${new Date(snapshot.config.modelsUpdatedAt).toLocaleString('zh-CN',{hour12:false})}` : '从本地代理获取可用模型';
-  $('catalog-list').innerHTML = visible.length ? visible.map(row => { const enabled = !disabled.has(canonicalModel(row.id)); return `<div class="catalog-row"><div><code>${escapeHTML(row.id)}</code><p>${row.available ? (enabled ? '可供外部访问' : '仅限本地访问') : '当前代理未提供 · 保留关闭设置'}</p></div><button type="button" class="model-switch" role="switch" aria-checked="${enabled}" aria-label="${escapeHTML(row.id)} 外部访问" data-modelid="${escapeHTML(row.id)}" ${pending ? 'disabled' : ''}><span></span></button></div>`; }).join('') : `<div class="empty">${query ? '没有匹配的模型' : '点击「从代理获取」加载模型'}</div>`;
+  $('catalog-summary').innerHTML = snapshot.config.modelsUpdatedAt ? descriptionRows([['模型总数',known.length],['对外开放',open],['更新时间',new Date(snapshot.config.modelsUpdatedAt).toLocaleString('zh-CN',{hour12:false})]]) : '从本地代理获取可用模型';
+  $('catalog-list').innerHTML = visible.length ? visible.map(row => { const enabled = !disabled.has(canonicalModel(row.id)); return `<div class="catalog-row"><div><code>${escapeHTML(row.id)}</code><p>${row.available ? (enabled ? '可供外部访问' : '仅限本地访问') : '当前代理未提供，仍保持关闭'}</p></div><button type="button" class="model-switch" role="switch" aria-checked="${enabled}" aria-label="${escapeHTML(row.id)} 外部访问" data-modelid="${escapeHTML(row.id)}" ${pending ? 'disabled' : ''}><span></span></button></div>`; }).join('') : `<div class="empty">${query ? '没有匹配的模型' : '点击「从代理获取」加载模型'}</div>`;
   $('catalog-list').querySelectorAll('[data-modelid]').forEach(button => button.onclick = async () => {
     await task(button, async () => { render(await call('setModelAccess', { model:button.dataset.modelid, enabled:button.getAttribute('aria-checked') !== 'true' })); toast('模型访问设置已保存'); });
     renderModelCatalog();
