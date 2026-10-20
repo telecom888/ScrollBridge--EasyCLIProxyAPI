@@ -50,9 +50,9 @@ function render(s) {
   $('imagesEnabled').checked = s.config.imagesEnabled;
   $('geminiImageCompatibility').checked = s.config.geminiImageCompatibility;
   renderDiagnosticModels();
-  $('version').textContent = `v${s.version}`; $('saved-indicator').textContent = dirty ? '尚未保存' : '配置已保存'; renderExample(); renderRecords(); renderDiagnostics(); renderModelCatalog();
+  $('version').textContent = `v${s.version}`; renderExample(); renderRecords(); renderDiagnostics(); renderModelCatalog();
 }
-for (const id of ['upstream','port','hostname','upstreamKey','tunnelToken']) $(id).addEventListener('input', () => { dirty = true; $('saved-indicator').textContent = '尚未保存'; });
+for (const id of ['upstream','port','hostname','upstreamKey','tunnelToken']) $(id).addEventListener('input', () => { dirty = true; });
 async function saveForm() { const s = await call('save', { config: {upstream:$('upstream').value,port:Number($('port').value),hostname:$('hostname').value}, upstreamKey:$('upstreamKey').value,tunnelToken:$('tunnelToken').value }); dirty = false; $('upstreamKey').value = ''; $('tunnelToken').value = ''; render(s); }
 $('connection-form').onsubmit = e => { e.preventDefault(); task(e.submitter, async () => { await saveForm(); toast('配置已保存'); }); };
 $('connect').onclick = () => task($('connect'), async () => { if (snapshot.status !== 'stopped') { render(await call('stop')); return; } if (dirty) await saveForm(); render(await call('start')); });

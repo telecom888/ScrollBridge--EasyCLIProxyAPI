@@ -15,10 +15,10 @@
     <button class="nav" data-page="records"><span data-icon="file"></span>记录</button>
     <button class="nav" data-page="settings"><span data-icon="settings"></span>设置</button>
   </nav>
-  <div class="sidebar-foot"><span class="tiny-dot"></span>本机运行<small id="version">v0.1.5</small></div>
+  <div class="sidebar-foot"><span class="tiny-dot"></span>本机运行<small id="version">v0.1.6</small></div>
 </aside>
 <main>
-  <header><h1 id="page-title">连接</h1><div class="header-actions"><span id="saved-indicator">配置已保存</span><button class="icon-button" id="theme-toggle" title="切换深浅色" aria-label="切换深浅色"><span data-icon="moon"></span></button></div></header>
+  <header><h1 id="page-title">连接</h1><div class="header-actions"><button class="icon-button" id="theme-toggle" title="切换深浅色" aria-label="切换深浅色"><span data-icon="moon"></span></button></div></header>
   <section id="page-connection" class="page">
     <div class="status-card panel"><div class="status-copy"><span class="status-dot" id="status-dot"></span><div><h2 id="status-title">未连接</h2><p id="status-message">配置域名与隧道后启动连接</p></div></div><button id="connect" class="primary"><span data-icon="play"></span><span id="connect-label">启动连接</span></button></div>
     <div class="diagnostic-grid"><div class="panel diagnostic"><div class="diagnostic-head"><strong><span data-icon="monitor"></span>代理工具</strong><button id="check-process" class="secondary">检测进程</button></div><div id="local-diagnostic-summary">尚未检测</div><div id="local-diagnostic-steps" class="diagnostic-steps"></div></div><div class="panel diagnostic"><div class="diagnostic-head"><strong><span data-icon="globe"></span>外部请求</strong><button id="check-external" class="secondary">检测外部请求</button></div><div id="public-diagnostic-summary">通过公网域名发送一条短模型请求</div><div id="public-diagnostic-steps" class="diagnostic-steps"></div><div class="diagnostic-model-picker"><label for="diagnostic-model">检测模型</label><div><select id="diagnostic-model"><option value="">自动选择</option></select><button id="refresh-diagnostic-models" class="secondary">获取模型</button></div><p>发送文本请求，请选择支持文本对话的模型。</p></div></div></div>
