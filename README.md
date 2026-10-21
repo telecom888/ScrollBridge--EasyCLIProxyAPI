@@ -1,10 +1,12 @@
 # 卷桥 ScrollBridge
 
+0.3.7 新增桌面本机管理 API，大模型代理可通过 HTTP 操作连接、日志、配置、模型和密钥。操作同步到桌面 UI，详情和调用示例见 [MANAGEMENT-API.md](MANAGEMENT-API.md)。
+
 将正在本机运行的 CLIProxyAPI / EasyCLIProxyAPI 模型服务通过固定域名提供给外部客户端。Windows x64 桌面应用，白色与羊皮纸色界面，支持深色和跟随系统。域名默认留空。
 
 ## 启动
 
-双击 `release/ScrollBridge-0.3.6-win-x64.exe`，无需安装 Node.js、管理员权限或开放入站端口。保持原代理工具运行。
+双击 `release/ScrollBridge-0.3.7-win-x64.exe`，无需安装 Node.js、管理员权限或开放入站端口。保持原代理工具运行。
 
 配置文件为 exe 同目录的 `scrollbridge.json`。普通版和 beta 版放在同一目录时共享配置；升级时将新 exe 放入该目录即可。移动到其他目录时请同时带上配置文件。目录必须可写，不会回退到 C 盘另建配置。密钥仍依赖原 Windows 账户和 Electron 加密环境；用户数据目录的 Local State 属于加密环境，不作为旧业务配置删除。Electron 缓存、单实例锁和 Go 运行账本继续由用户数据目录管理。
 
@@ -149,7 +151,7 @@ UI 先用内置 ImageGen 生成参考，再实现原生代码界面。参考图�
 
 ## Go 网关 beta
 
-分支 `beta/go-gateway` 同时交付两个桌面版本：`ScrollBridge-0.3.6-win-x64.exe` 保留 Node 网关，`ScrollBridge-0.3.6-beta-win-x64.exe` 使用 Go 网关。两者复用桌面布局、Windows 加密配置及隧道管理，界面不标注技术栈，后者仅在版本号显示 beta。新增费用设置和记录位于 beta 版。
+分支 `beta/go-gateway` 同时交付两个桌面版本：`ScrollBridge-0.3.7-win-x64.exe` 保留 Node 网关，`ScrollBridge-0.3.7-beta-win-x64.exe` 使用 Go 网关。两者复用桌面布局、Windows 加密配置及隧道管理，界面不标注技术栈，后者仅在版本号显示 beta。新增费用设置和记录位于 beta 版。
 
 Go 已移植 WebSocket、multipart 图像编辑、Gemini 图像生成兼容、gzip/deflate/Brotli、单模型详情及过滤后的上游模型目录。两版在同目录共用配置，使用同一单实例锁，请退出一版再打开另一版。
 

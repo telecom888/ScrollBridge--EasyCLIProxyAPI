@@ -13,6 +13,7 @@ const {localCheck,publicCheck}=require('../lib/diagnostics.cjs');
 const {fetchModels,modelKey,modelName}=require('../lib/models.cjs');
 const {uid,newKey,syncModels,deleteUnavailableModel,entries}=require('../lib/policy.cjs');
 const {createModelRefresh}=require('../lib/model-refresh.cjs');
+const {startManagementAPI}=require('../lib/management-api.cjs');
 app.setName('ScrollBridge');
 const configDirectory = dataDirectory({testDirectory:process.env.SCROLLBRIDGE_TEST_DATA,portableFile:process.env.PORTABLE_EXECUTABLE_FILE,packaged:app.isPackaged,executable:app.getPath('exe'),appPath:app.getAppPath()});
 // Both desktop editions and every portable filename share the same identity.
@@ -22,7 +23,7 @@ app.setPath('userData', profileDirectory);
 const ownsProfile = app.requestSingleInstanceLock();
 if (!ownsProfile) app.quit();
 let window, tray, store, config, secrets, gateway, tunnel, closing = false, busy = false;
-let modelRefresh;
+let modelRefresh, managementAPI;
 let status = 'stopped', message = '', records = [], logs = [], localDiagnostic = null, publicDiagnostic = null;
 const view = () => ({ config, keys:config.accessKeys.map(key=>({...key,masked:`${secrets.keyValues[key.id].slice(0,6)}…${secrets.keyValues[key.id].slice(-4)}`})), modelEntries:entries(config),hasUpstreamKey: !!secrets.upstreamKey, hasTunnelToken: !!secrets.tunnelToken, gatewayRunning: !!gateway, status, message, records, logs, localDiagnostic, publicDiagnostic, version: app.getVersion(),features:{billing:gatewayEngine==='go'} });
 async function synchronizeGateway(){try{await gateway?.refreshPolicy();}catch{await stop();state('error','配置已保存，网关更新失败，连接已停止');throw new Error('配置已保存，网关更新失败，请重新连接');}}
@@ -65,6 +66,7 @@ async function save(payload = {}) {
 }
 const actions = {
   snapshot: () => view(),
+  revealKey: payload => {const key=findKey(payload?.id);return {id:key.id,value:secrets.keyValues[key.id]};},
   save,
   copyKey: payload => { const key=findKey(payload?.id);clipboard.writeText(secrets.keyValues[key.id]); return true; },
   rotateKey: payload => {const key=findKey(payload?.id);return commit(config,{...secrets,keyValues:{...secrets.keyValues,[key.id]:createAccessKey()}});},
@@ -158,6 +160,14 @@ const actions = {
 function updateModels(knownModels) {
   return commit({...syncModels(config,knownModels),modelsUpdatedAt:new Date().toISOString()});
 }
+async function invokeAction(action,payload) {
+  if(!Object.hasOwn(actions,action))throw Object.assign(new Error('请求无效'),{status:404,code:'NOT_FOUND'});
+  const mutation=!['snapshot','copy','copyKey','revealKey','openCloudflare','openGuide','openData'].includes(action);
+  if(closing)throw Object.assign(new Error('程序正在退出'),{status:503,code:'SHUTTING_DOWN'});
+  if(mutation && busy)throw Object.assign(new Error('请等待当前操作完成'),{status:409,code:'BUSY'});
+  if(mutation)busy=true;
+  try{return await actions[action](payload);}finally{if(mutation)busy=false;}
+}
 async function createWindow() {
   window = new BrowserWindow({ title: '卷桥', show: process.env.SCROLLBRIDGE_SMOKE !== '1', width: 1160, height: 850, minWidth: 960, minHeight: 700, backgroundColor: '#f7f4ed', autoHideMenuBar: true, icon: path.join(app.getAppPath(), 'ui', 'icon.png'), webPreferences: { preload: path.join(__dirname, 'preload.cjs'), nodeIntegration: false, contextIsolation: true, sandbox: true, spellcheck: false } });
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
@@ -188,15 +198,14 @@ app.whenReady().then(async () => {
   if(config.launchAtLogin)app.setLoginItemSettings({openAtLogin:true,path:process.env.PORTABLE_EXECUTABLE_FILE || app.getPath('exe')});
   ipcMain.handle('bridge', async (event, action, payload) => {
     if (event.sender !== window?.webContents || event.senderFrame !== window.webContents.mainFrame || !Object.hasOwn(actions, action)) throw new Error('请求无效');
-    const mutation = ['save', 'start', 'stop', 'import', 'bind', 'rotateKey', 'refreshModels', 'setModelAccess','saveKey','deleteKey','saveAliases','testLocal','deleteModel'].includes(action);
-    if (mutation && busy) throw new Error('请等待当前操作完成');
-    if (mutation) busy = true;
-    try { return await actions[action](payload); } catch (e) { throw new Error(e.message); } finally { if (mutation) busy = false; }
+    try { return await invokeAction(action,payload); } catch (e) { throw new Error(e.message); }
   });
   await createWindow();
   tray = new Tray(nativeImage.createFromPath(path.join(app.getAppPath(), 'ui', 'icon.png')));
   tray.setToolTip('卷桥模型服务连接'); tray.on('double-click', () => window.show());
   tray.setContextMenu(Menu.buildFromTemplate([{ label: '打开卷桥', click: () => { window.show(); window.focus(); } }, { label: '停止连接', click: stop }, { type: 'separator' }, { label: '退出', click: () => { closing = true; app.quit(); } }]));
+  try{managementAPI=await startManagementAPI({directory:profileDirectory,invoke:invokeAction,version:app.getVersion()});}
+  catch{log('本机管理 API 启动失败，请检查运行目录的写入权限');}
   modelRefresh=createModelRefresh({getConfig:()=>config,run:async()=>{
     if(busy || closing)return;
     busy=true;
@@ -211,4 +220,4 @@ app.whenReady().then(async () => {
   }
 });
 app.on('window-all-closed', () => { if (!gateway) { closing = true; app.quit(); } });
-app.on('before-quit', e => { modelRefresh?.stop();if (gateway || tunnel) { e.preventDefault(); closing = true; stop().finally(() => app.quit()); } });
+app.on('before-quit', e => { modelRefresh?.stop();managementAPI?.close();if (gateway || tunnel) { e.preventDefault(); closing = true; stop().finally(() => app.quit()); } });

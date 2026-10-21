@@ -8,6 +8,7 @@ config.json
 secrets*
 scrollbridge.json
 scrollbridge.json.tmp
+management.json
 .beta-state/
 .beta-node-*/
 beta/go-gateway/config.beta.json
