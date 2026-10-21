@@ -12,8 +12,12 @@ const {localCheck,publicCheck}=require('../lib/diagnostics.cjs');
 const {fetchModels,modelKey,modelName}=require('../lib/models.cjs');
 const {uid,newKey,syncModels,entries}=require('../lib/policy.cjs');
 app.setName('ScrollBridge');
-if (process.env.SCROLLBRIDGE_TEST_DATA) { fs.mkdirSync(process.env.SCROLLBRIDGE_TEST_DATA, {recursive:true}); app.setPath('userData', process.env.SCROLLBRIDGE_TEST_DATA); }
-if (!app.requestSingleInstanceLock()) app.quit();
+// Both desktop editions and every portable filename share the same identity.
+const profileDirectory = process.env.SCROLLBRIDGE_TEST_DATA || path.join(app.getPath('appData'), 'ScrollBridge');
+fs.mkdirSync(profileDirectory, {recursive:true});
+app.setPath('userData', profileDirectory);
+const ownsProfile = app.requestSingleInstanceLock();
+if (!ownsProfile) app.quit();
 let window, tray, store, config, secrets, gateway, tunnel, closing = false, busy = false;
 let status = 'stopped', message = '', records = [], logs = [], localDiagnostic = null, publicDiagnostic = null;
 const view = () => ({ config, keys:config.accessKeys.map(key=>({...key,masked:`${secrets.keyValues[key.id].slice(0,6)}…${secrets.keyValues[key.id].slice(-4)}`})), modelEntries:entries(config),hasUpstreamKey: !!secrets.upstreamKey, hasTunnelToken: !!secrets.tunnelToken, gatewayRunning: !!gateway, status, message, records, logs, localDiagnostic, publicDiagnostic, version: app.getVersion(),features:{billing:gatewayEngine==='go'} });
@@ -147,9 +151,10 @@ async function createWindow() {
 }
 app.on('second-instance', () => { if (window) { window.show(); window.focus(); } });
 app.whenReady().then(async () => {
+  if (!ownsProfile) return;
   session.defaultSession.setPermissionRequestHandler((_, __, cb) => cb(false));
   store = new Store(app.getPath('userData'), safeStorage);
-  try { ({ config, secrets } = store.load()); store.save(config, secrets); } catch (e) { dialog.showErrorBox('卷桥', e.message); closing = true; app.quit(); return; }
+  try { ({ config, secrets } = store.load()); } catch (e) { dialog.showErrorBox('卷桥', `${e.message}\n\n配置位置：${path.join(profileDirectory, 'settings.json')}\n已有配置未被覆盖。`); closing = true; app.quit(); return; }
   // Delete a token file left by an interrupted previous process.
   try { fs.unlinkSync(path.join(app.getPath('userData'), 'runtime', 'tunnel-token')); } catch {}
   ipcMain.handle('bridge', async (event, action, payload) => {

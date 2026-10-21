@@ -10,7 +10,7 @@ const builder=require('electron-builder');
 (async()=>{
  const builds={};
  for(const engine of mode==='both'?['node','go']:[mode]){
-  const version=engine==='go'?'0.3.0-beta':'0.3.0';
+  const version=require('../package.json').version+(engine==='go'?'-beta':'');
   const buildDir=path.join(root,'.test-output','desktop-'+engine+'-'+Date.now());builds[engine]=buildDir;
   // An explicit complete config avoids electron-builder concatenating the
   // package.json and override resource arrays and copying the same exe twice.
@@ -20,6 +20,7 @@ const builder=require('electron-builder');
   const name=`ScrollBridge-${version}-win-x64.exe`;fs.copyFileSync(path.join(buildDir,name),path.join(root,'release',name));
  }
  const manifestPath=path.join(root,'.test-output','desktop-builds.json');let previous={};try{previous=JSON.parse(fs.readFileSync(manifestPath,'utf8'))}catch{};fs.writeFileSync(manifestPath,JSON.stringify({...previous,...builds},null,2));
- const names=['ScrollBridge-0.3.0-win-x64.exe','ScrollBridge-0.3.0-beta-win-x64.exe'].filter(n=>fs.existsSync(path.join(root,'release',n)));
- fs.writeFileSync(path.join(root,'release','SHA256SUMS-0.3.0.txt'),names.map(n=>crypto.createHash('sha256').update(fs.readFileSync(path.join(root,'release',n))).digest('hex')+'  '+n).join('\n')+'\n');
+ const version=require('../package.json').version;
+ const names=[`ScrollBridge-${version}-win-x64.exe`,`ScrollBridge-${version}-beta-win-x64.exe`].filter(n=>fs.existsSync(path.join(root,'release',n)));
+ fs.writeFileSync(path.join(root,'release',`SHA256SUMS-${version}.txt`),names.map(n=>crypto.createHash('sha256').update(fs.readFileSync(path.join(root,'release',n))).digest('hex')+'  '+n).join('\n')+'\n');
 })().catch(e=>{console.error(e);process.exit(1)});
