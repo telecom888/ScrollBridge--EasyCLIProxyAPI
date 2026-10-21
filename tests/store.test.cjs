@@ -21,3 +21,13 @@ test('missing or corrupt settings in an existing profile never create replacemen
  fs.writeFileSync(path.join(dir,'settings.json'),'{broken');assert.throws(()=>store.load(),/配置无法读取/);
  assert.equal(fs.readFileSync(path.join(dir,'settings.json'),'utf8'),'{broken');
 });
+test('unsupported format diagnostic contains structure only and preserves the source bytes',t=>{
+ const dir=fs.mkdtempSync(path.join(os.tmpdir(),'sb-format-'));t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));
+ const original=JSON.stringify({version:1,config:{private:'do-not-log'},secrets:'do-not-log-either'});
+ fs.writeFileSync(path.join(dir,'settings.json'),original);
+ assert.throws(()=>new Store(dir,fakeEncryption).load(),e=>{
+  assert.deepEqual(e.configShape,{version:1,versionType:'number',configType:'object',secretsType:'string',hasConfig:true,hasSecrets:true});
+  assert.equal(JSON.stringify(e.configShape).includes('do-not-log'),false);return true;
+ });
+ assert.equal(fs.readFileSync(path.join(dir,'settings.json'),'utf8'),original);
+});

@@ -154,7 +154,21 @@ app.whenReady().then(async () => {
   if (!ownsProfile) return;
   session.defaultSession.setPermissionRequestHandler((_, __, cb) => cb(false));
   store = new Store(app.getPath('userData'), safeStorage);
-  try { ({ config, secrets } = store.load()); } catch (e) { dialog.showErrorBox('卷桥', `${e.message}\n\n配置位置：${path.join(profileDirectory, 'settings.json')}\n已有配置未被覆盖。`); closing = true; app.quit(); return; }
+  try { ({ config, secrets } = store.load()); } catch (e) {
+    const reportPath = path.join(profileDirectory, 'startup-error.json');
+    let reportSaved = false;
+    try {
+      fs.writeFileSync(reportPath, JSON.stringify({
+        time: new Date().toISOString(), appVersion: app.getVersion(),
+        executable: process.env.PORTABLE_EXECUTABLE_FILE || process.execPath,
+        configPath: path.join(profileDirectory, 'settings.json'),
+        expectedFormat: 2, configShape: e.configShape || null
+      }, null, 2), {mode:0o600});
+      reportSaved = true;
+    } catch {}
+    dialog.showErrorBox('卷桥', `${e.message}\n\n程序版本：${app.getVersion()}\n配置位置：${path.join(profileDirectory, 'settings.json')}${reportSaved ? '\n错误记录：' + reportPath : ''}\n已有配置未被覆盖。`);
+    closing = true; app.quit(); return;
+  }
   // Delete a token file left by an interrupted previous process.
   try { fs.unlinkSync(path.join(app.getPath('userData'), 'runtime', 'tunnel-token')); } catch {}
   ipcMain.handle('bridge', async (event, action, payload) => {

@@ -145,11 +145,13 @@ UI 先用内置 ImageGen 生成参考，再实现原生代码界面。参考图�
 
 ## Go 网关 beta
 
-分支 `beta/go-gateway` 同时交付两个桌面版本：`ScrollBridge-0.3.1-win-x64.exe` 保留 Node 网关，`ScrollBridge-0.3.1-beta-win-x64.exe` 使用 Go 网关。两者复用桌面布局、Windows 加密配置及隧道管理，界面不标注技术栈，后者仅在版本号显示 beta。新增费用设置和记录位于 beta 版。
+分支 `beta/go-gateway` 同时交付两个桌面版本：`ScrollBridge-0.3.2-win-x64.exe` 保留 Node 网关，`ScrollBridge-0.3.2-beta-win-x64.exe` 使用 Go 网关。两者复用桌面布局、Windows 加密配置及隧道管理，界面不标注技术栈，后者仅在版本号显示 beta。新增费用设置和记录位于 beta 版。
 
 Go 已移植 WebSocket、multipart 图像编辑、Gemini 图像生成兼容、gzip/deflate/Brotli、单模型详情及过滤后的上游模型目录。两版共用原有配置目录和单实例锁，请退出一版再打开另一版。现有配置在加载时补齐可选字段，不清空密钥或域名。
 
 0.3.1 固定使用 `%APPDATA%/ScrollBridge`，在申请单实例锁前设置路径；未获得锁的进程不读取或写入配置。首次安装立即持久化密钥，后续启动仅读取；配置更新前保留 `settings.json.bak` 加密备份。发现主配置缺失但有备份或临时文件时停止启动，避免把旧安装误认为首次安装而产生新密钥。格式错误会提示实际配置路径，原文件保留；旧版配置仍由转换工具处理。可运行 `node scripts/profile-upgrade-smoke.cjs` 验证两种桌面版本共用加密配置、重复启动后密钥不变。
+
+0.3.2 在启动读取失败时写入配置目录下的 `startup-error.json`，记录时间、程序版本、可执行文件路径、实际配置路径及格式结构；不记录凭证、提示词或配置内容。弹窗显示程序版本及错误记录位置。`node scripts/startup-error-smoke.cjs` 验证旧格式报错路径、错误记录脱敏及源文件保留。这是对尚未复现的格式错误补充诊断，并不代表已确定其根因。
 
 构建：`node scripts/build-desktop.cjs both`；单独构建可用 `npm run dist:node` / `npm run dist:go`。开发启动默认 Node；先执行 `node scripts/build-desktop.cjs core`，再设置 `SCROLLBRIDGE_GATEWAY_ENGINE=go` 可在开发环境测试 Go 桌面版。
 
