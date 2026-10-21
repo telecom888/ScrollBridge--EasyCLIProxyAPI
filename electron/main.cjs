@@ -11,7 +11,8 @@ const { startTunnel } = require('../lib/tunnel.cjs');
 const { provision } = require('../lib/cloudflare.cjs');
 const {localCheck,publicCheck}=require('../lib/diagnostics.cjs');
 const {fetchModels,modelKey,modelName}=require('../lib/models.cjs');
-const {uid,newKey,syncModels,entries}=require('../lib/policy.cjs');
+const {uid,newKey,syncModels,deleteUnavailableModel,entries}=require('../lib/policy.cjs');
+const {createModelRefresh}=require('../lib/model-refresh.cjs');
 app.setName('ScrollBridge');
 const configDirectory = dataDirectory({testDirectory:process.env.SCROLLBRIDGE_TEST_DATA,portableFile:process.env.PORTABLE_EXECUTABLE_FILE,packaged:app.isPackaged,executable:app.getPath('exe'),appPath:app.getAppPath()});
 // Both desktop editions and every portable filename share the same identity.
@@ -21,6 +22,7 @@ app.setPath('userData', profileDirectory);
 const ownsProfile = app.requestSingleInstanceLock();
 if (!ownsProfile) app.quit();
 let window, tray, store, config, secrets, gateway, tunnel, closing = false, busy = false;
+let modelRefresh;
 let status = 'stopped', message = '', records = [], logs = [], localDiagnostic = null, publicDiagnostic = null;
 const view = () => ({ config, keys:config.accessKeys.map(key=>({...key,masked:`${secrets.keyValues[key.id].slice(0,6)}…${secrets.keyValues[key.id].slice(-4)}`})), modelEntries:entries(config),hasUpstreamKey: !!secrets.upstreamKey, hasTunnelToken: !!secrets.tunnelToken, gatewayRunning: !!gateway, status, message, records, logs, localDiagnostic, publicDiagnostic, version: app.getVersion(),features:{billing:gatewayEngine==='go'} });
 async function synchronizeGateway(){try{await gateway?.refreshPolicy();}catch{await stop();state('error','配置已保存，网关更新失败，连接已停止');throw new Error('配置已保存，网关更新失败，请重新连接');}}
@@ -53,10 +55,12 @@ async function save(payload = {}) {
     nextSecrets[key] = payload[key].trim();
   }
   const loginChanged=next.launchAtLogin!==config.launchAtLogin;
+  const refreshChanged=next.modelRefreshMinutes!==config.modelRefreshMinutes;
   store.save(next, nextSecrets); config = next; secrets = nextSecrets;
   if (payload.config?.diagnosticModel !== undefined || payload.config?.diagnosticKeyId !== undefined) publicDiagnostic = null;
   if (payload.config?.hostname !== undefined || payload.tunnelToken || payload.clearUpstreamKey || payload.upstreamKey || payload.config?.upstream !== undefined) {localDiagnostic=null;publicDiagnostic=null;}
   if(loginChanged)app.setLoginItemSettings({ openAtLogin:!!config.launchAtLogin,path:process.env.PORTABLE_EXECUTABLE_FILE || app.getPath('exe') });
+  if(refreshChanged)modelRefresh?.reschedule();
   await synchronizeGateway();publish(); return view();
 }
 const actions = {
@@ -94,15 +98,20 @@ const actions = {
     return commit(next);
   },
   copy: text => { if (typeof text !== 'string' || text.length > 50000) throw new Error('复制内容无效'); clipboard.writeText(text); return true; },
-  testLocal: async () => {localDiagnostic=await localCheck(config,secrets);publish();return localDiagnostic;},
+  testLocal: async () => {
+    localDiagnostic=await localCheck(config,secrets);
+    if(localDiagnostic.modelsFetched)await updateModels(localDiagnostic.models);
+    publish();return localDiagnostic;
+  },
   testPublic: async () => {const key=findKey(config.diagnosticKeyId);if(!key.enabled)throw new Error('所选检测密钥已停用');publicDiagnostic=await publicCheck(config,secrets,{model:config.diagnosticModel,keyId:key.id});publish();return publicDiagnostic;},
   refreshModels: async () => {
-    const knownModels = await fetchModels(config, secrets);
-    return commit({...syncModels(config,knownModels),modelsUpdatedAt:new Date().toISOString()});
+    return updateModels(await fetchModels(config, secrets));
   },
+  deleteModel: payload => commit(deleteUnavailableModel(config,payload?.id)),
   setModelAccess: payload => {
     if (!payload || !modelName(payload.model) || typeof payload.enabled !== 'boolean') throw new Error('模型设置无效');
     const key = modelKey(payload.model);
+    if(payload.enabled && !config.knownModels.some(id=>modelKey(id)===key))throw new Error('当前代理未提供该模型，无法开放');
     if (!config.knownModels.some(id => modelKey(id) === key) && !config.disabledModels.includes(key)) throw new Error('请先从本地代理获取该模型');
     const disabled = new Set(config.disabledModels);
     if (payload.enabled) disabled.delete(key); else disabled.add(key);
@@ -146,6 +155,9 @@ const actions = {
   clearLogs: () => { records = []; logs = []; publish(); return true; },
   openData: () => shell.openPath(configDirectory)
 };
+function updateModels(knownModels) {
+  return commit({...syncModels(config,knownModels),modelsUpdatedAt:new Date().toISOString()});
+}
 async function createWindow() {
   window = new BrowserWindow({ title: '卷桥', show: process.env.SCROLLBRIDGE_SMOKE !== '1', width: 1160, height: 850, minWidth: 960, minHeight: 700, backgroundColor: '#f7f4ed', autoHideMenuBar: true, icon: path.join(app.getAppPath(), 'ui', 'icon.png'), webPreferences: { preload: path.join(__dirname, 'preload.cjs'), nodeIntegration: false, contextIsolation: true, sandbox: true, spellcheck: false } });
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
@@ -176,7 +188,7 @@ app.whenReady().then(async () => {
   if(config.launchAtLogin)app.setLoginItemSettings({openAtLogin:true,path:process.env.PORTABLE_EXECUTABLE_FILE || app.getPath('exe')});
   ipcMain.handle('bridge', async (event, action, payload) => {
     if (event.sender !== window?.webContents || event.senderFrame !== window.webContents.mainFrame || !Object.hasOwn(actions, action)) throw new Error('请求无效');
-    const mutation = ['save', 'start', 'stop', 'import', 'bind', 'rotateKey', 'refreshModels', 'setModelAccess','saveKey','deleteKey','saveAliases'].includes(action);
+    const mutation = ['save', 'start', 'stop', 'import', 'bind', 'rotateKey', 'refreshModels', 'setModelAccess','saveKey','deleteKey','saveAliases','testLocal','deleteModel'].includes(action);
     if (mutation && busy) throw new Error('请等待当前操作完成');
     if (mutation) busy = true;
     try { return await actions[action](payload); } catch (e) { throw new Error(e.message); } finally { if (mutation) busy = false; }
@@ -185,6 +197,12 @@ app.whenReady().then(async () => {
   tray = new Tray(nativeImage.createFromPath(path.join(app.getAppPath(), 'ui', 'icon.png')));
   tray.setToolTip('卷桥模型服务连接'); tray.on('double-click', () => window.show());
   tray.setContextMenu(Menu.buildFromTemplate([{ label: '打开卷桥', click: () => { window.show(); window.focus(); } }, { label: '停止连接', click: stop }, { type: 'separator' }, { label: '退出', click: () => { closing = true; app.quit(); } }]));
+  modelRefresh=createModelRefresh({getConfig:()=>config,run:async()=>{
+    if(busy || closing)return;
+    busy=true;
+    try{await actions.refreshModels();}finally{busy=false;}
+  },onError:()=>log('自动刷新模型失败，已保留现有列表；请检查本地代理服务')});
+  void modelRefresh.start();
   if (process.env.SCROLLBRIDGE_SMOKE === '1') {
     await window.webContents.executeJavaScript("document.documentElement.dataset.smoke = 'ready'");
     fs.writeFileSync(path.join(app.getPath('userData'),'runtime-ready.json'),JSON.stringify({packaged:app.isPackaged,portable:!!process.env.PORTABLE_EXECUTABLE_FILE,encrypted:safeStorage.isEncryptionAvailable(),ready:true}));
@@ -193,4 +211,4 @@ app.whenReady().then(async () => {
   }
 });
 app.on('window-all-closed', () => { if (!gateway) { closing = true; app.quit(); } });
-app.on('before-quit', e => { if (gateway || tunnel) { e.preventDefault(); closing = true; stop().finally(() => app.quit()); } });
+app.on('before-quit', e => { modelRefresh?.stop();if (gateway || tunnel) { e.preventDefault(); closing = true; stop().finally(() => app.quit()); } });

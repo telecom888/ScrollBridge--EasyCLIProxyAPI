@@ -1,7 +1,7 @@
 {
   "name": "scrollbridge",
   "productName": "卷桥",
-  "version": "0.3.5",
+  "version": "0.3.6",
   "description": "本地模型服务的域名与 HTTPS 隧道桌面工具",
   "author": "telecom888",
   "license": "MIT",

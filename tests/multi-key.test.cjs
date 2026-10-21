@@ -57,6 +57,19 @@ test('per-key lists, aliases, raw ID switch and global policy agree across authe
   assert.deepEqual((await list(f.limited)).data,[]);
   assert.ok(!JSON.stringify(f.records).includes(f.secrets.keyValues[f.all.id]));
 });
+
+test('catalog refresh revokes missing aliases live and does not reopen returning models',async t=>{
+  const f=await fixture(t);
+  await f.update(c=>Object.assign(c,syncModels(c,['other-real'])));
+  const send=()=>fetch(f.base+'/v1/chat/completions',{method:'POST',headers:f.auth(),body:JSON.stringify({model:'chat-fast'})});
+  assert.equal((await send()).status,404);
+  assert.ok(f.config.disabledModels.includes('gemini-real'));
+  assert.deepEqual((await(await fetch(f.base+'/v1/models',{headers:f.auth(f.limited)})).json()).data,[]);
+  await f.update(c=>Object.assign(c,syncModels(c,['gemini-real','other-real'])));
+  assert.equal((await send()).status,403);
+  await f.update(c=>{c.disabledModels=[];});
+  assert.equal((await send()).status,200);
+});
 test('JSON, Google path, single model and compressed response translate only protocol fields',async t=>{
   const f=await fixture(t);
   for(const path of ['/v1/chat/completions','/v1/responses','/v1/messages','/v1/embeddings','/v1beta/interactions','/v1beta/models/chat-fast:generateContent']){

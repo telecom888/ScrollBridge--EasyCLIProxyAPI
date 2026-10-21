@@ -59,7 +59,7 @@ function render(s) {
   $('route-upstream').textContent = s.config.upstream.replace(/^https?:\/\//,''); $('route-host').textContent = s.config.hostname || '尚未配置'; $('public-base').textContent = s.config.hostname ? `https://${s.config.hostname}` : '请先配置域名'; $('origin-service').textContent = `http://127.0.0.1:${s.config.port}`;
   $('imagesEnabled').checked = s.config.imagesEnabled;
   $('geminiImageCompatibility').checked = s.config.geminiImageCompatibility;
-  renderManagement();renderDiagnosticModels();
+  renderModelRefreshSettings();renderManagement();renderDiagnosticModels();
   $('version').textContent = `v${s.version.replace(/-beta(?:\.\d+)?$/,' beta')}`; renderBilling();renderExample(); renderRecords(); renderDiagnostics(); renderModelCatalog();
 }
 for (const id of ['upstream','port','hostname','upstreamKey','tunnelToken']) $(id).addEventListener('input', () => { dirty = true; });
@@ -165,21 +165,43 @@ function renderModelCatalog() {
   const visible = [...rows.values()].filter(row => row.id.toLowerCase().includes(query));
   const open = known.filter(id => !disabled.has(canonicalModel(id))).length;
   if(replaceContent($('catalog-summary'),snapshot.config.modelsUpdatedAt ? descriptionRows([['模型总数',known.length],['对外开放',open],['更新时间',new Date(snapshot.config.modelsUpdatedAt).toLocaleString('zh-CN',{hour12:false})]]) : '从本地代理获取可用模型')) reveal($('catalog-summary'));
-  const catalogHTML = visible.length ? visible.map(row => { const enabled = !disabled.has(canonicalModel(row.id)),rule=snapshot.config.modelRules.find(rule=>canonicalModel(rule.actual)===canonicalModel(row.id)); return `<div class="catalog-row"><div><code>${escapeHTML(row.id)}</code><p>${row.available ? (enabled ? '全局开放' : '全局已关闭') : '当前代理未提供'}</p><p class="alias-summary">对外 ID：${escapeHTML((snapshot.modelEntries || []).filter(entry=>entry.modelId===rule?.id).map(entry=>entry.name).join('、') || row.id)}</p></div><div class="catalog-actions">${rule?`<button class="secondary" data-edit-alias="${rule.id}">编辑对外 ID</button>`:''}<button type="button" class="model-switch" role="switch" aria-checked="${enabled}" aria-label="${escapeHTML(row.id)} 外部访问" data-modelid="${escapeHTML(row.id)}" ${pending ? 'disabled' : ''}><span></span></button></div></div>`; }).join('') : `<div class="empty">${query ? '没有匹配的模型' : '点击「从代理获取」加载模型'}</div>`;
+  const catalogHTML = visible.length ? visible.map(row => { const enabled = row.available && !disabled.has(canonicalModel(row.id)),rule=snapshot.config.modelRules.find(rule=>canonicalModel(rule.actual)===canonicalModel(row.id)); return `<div class="catalog-row"><div><code>${escapeHTML(row.id)}</code><p class="${row.available ? '' : 'unavailable-model'}">${row.available ? (enabled ? '全局开放' : '全局已关闭') : '已下架，全局已关闭'}</p><p class="alias-summary">对外 ID：${escapeHTML((snapshot.modelEntries || []).filter(entry=>entry.modelId===rule?.id).map(entry=>entry.name).join('、') || row.id)}</p></div><div class="catalog-actions">${rule?`<button class="secondary" data-edit-alias="${rule.id}">编辑对外 ID</button>`:''}${!row.available && rule ? `<button class="secondary danger-text" data-delete-model="${rule.id}">删除</button>` : ''}<button type="button" class="model-switch" role="switch" aria-checked="${enabled}" aria-label="${escapeHTML(row.id)} 外部访问" data-modelid="${escapeHTML(row.id)}" ${pending || !row.available ? 'disabled' : ''}><span></span></button></div></div>`; }).join('') : `<div class="empty">${query ? '没有匹配的模型' : '点击「从代理获取」加载模型'}</div>`;
   reconcileRows($('catalog-list'),catalogHTML,row=>row.querySelector('[data-modelid]')?.dataset.modelid || `empty:${row.textContent}`,(row,next)=>{
     const control=row.querySelector('[data-modelid]'), incoming=next.querySelector('[data-modelid]');
     if(!control) return;
     control.setAttribute('aria-checked',incoming.getAttribute('aria-checked')); control.disabled=incoming.disabled;
     const detail=row.querySelector('p'), text=next.querySelector('p').textContent;
-    if(detail.textContent!==text) {detail.textContent=text;reveal(detail);}
+    detail.className=next.querySelector('p').className;if(detail.textContent!==text) {detail.textContent=text;reveal(detail);}
+    if(!!row.querySelector('[data-delete-model]')!==!!next.querySelector('[data-delete-model]'))row.querySelector('.catalog-actions').replaceWith(next.querySelector('.catalog-actions'));
     const summary=row.querySelector('.alias-summary');if(summary)summary.textContent=next.querySelector('.alias-summary').textContent;
   });
+  $('catalog-list').querySelectorAll('[data-delete-model]').forEach(button=>button.onclick=()=>{deleteModelId=button.dataset.deleteModel;const rule=snapshot.config.modelRules.find(row=>row.id===deleteModelId);$('model-delete-message').textContent=`将删除 ${rule.actual} 的别名和密钥权限设置。`;$('model-delete-dialog').showModal();});
   $('catalog-list').querySelectorAll('[data-edit-alias]').forEach(button=>button.onclick=()=>openAliasEditor(button.dataset.editAlias));
   $('catalog-list').querySelectorAll('[data-modelid]').forEach(button => button.onclick = async () => {
     await task(button, async () => { render(await call('setModelAccess', { model:button.dataset.modelid, enabled:button.getAttribute('aria-checked') !== 'true' })); toast('模型访问设置已保存'); });
     renderModelCatalog();
   });
 }
+let deleteModelId;
+$('cancel-model-delete').onclick=()=>$('model-delete-dialog').close();
+$('confirm-model-delete').onclick=()=>task($('confirm-model-delete'),async()=>{render(await call('deleteModel',{id:deleteModelId}));$('model-delete-dialog').close();toast('模型已删除');});
+let refreshIntervalDirty=false;
+function renderModelRefreshSettings(){
+  $('refreshModelsOnStartup').checked=snapshot.config.refreshModelsOnStartup;
+  if(refreshIntervalDirty)return;
+  const minutes=snapshot.config.modelRefreshMinutes;
+  $('model-refresh-mode').value=minutes?'interval':'off';
+  $('model-refresh-form').hidden=!minutes;
+  $('modelRefreshMinutes').value=minutes || 30;
+}
+$('refreshModelsOnStartup').onchange=()=>task($('refreshModelsOnStartup'),async()=>{try{await changeSetting({refreshModelsOnStartup:$('refreshModelsOnStartup').checked});}finally{render(await call('snapshot'));}});
+$('model-refresh-mode').onchange=()=>{
+  const enabled=$('model-refresh-mode').value==='interval';
+  if(enabled){refreshIntervalDirty=true;$('model-refresh-form').hidden=false;$('modelRefreshMinutes').focus();}
+  else task($('model-refresh-mode'),async()=>{try{await changeSetting({modelRefreshMinutes:0});}finally{refreshIntervalDirty=false;render(await call('snapshot'));}});
+};
+$('modelRefreshMinutes').oninput=()=>{refreshIntervalDirty=true;};
+$('model-refresh-form').onsubmit=e=>{e.preventDefault();task(e.submitter,async()=>{await changeSetting({modelRefreshMinutes:Number($('modelRefreshMinutes').value)});refreshIntervalDirty=false;renderModelRefreshSettings();});};
 $('model-search').oninput = renderModelCatalog;
 $('refresh-models').onclick = async () => { await task($('refresh-models'), async () => { if (dirty) await saveForm(); render(await call('refreshModels')); toast('模型列表已更新'); }); renderModelCatalog(); };
 $('clear-records').onclick = () => task(null, () => call('clearLogs'));

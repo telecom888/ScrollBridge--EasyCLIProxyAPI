@@ -171,3 +171,5 @@ body[data-page=keys] main{padding-bottom:24px}
 .key-editor-body::-webkit-scrollbar-thumb,.permissions::-webkit-scrollbar-thumb,#key-list::-webkit-scrollbar-thumb{background:var(--line);border-radius:4px}
 .setting-row input[type=checkbox][role=switch]::before,.model-switch>span{background:#fff}
 html[data-theme=dark] .setting-row input[type=checkbox][role=switch]::before,html[data-theme=dark] .model-switch>span{background:#eee9df}
+
+.refresh-interval{display:flex;align-items:flex-end;gap:14px;margin-top:18px}.refresh-interval label{max-width:240px;flex:1}.refresh-interval button{margin-bottom:1px}.catalog-row .unavailable-model{color:var(--accent);font-weight:500}.model-switch:disabled{opacity:.45;cursor:not-allowed}
