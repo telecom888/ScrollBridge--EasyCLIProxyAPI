@@ -3,6 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { parseCPA } = require('../lib/import-cpa.cjs');
 const { Store } = require('../lib/store.cjs');
+const {dataDirectory} = require('../lib/data-path.cjs');
 const { validateConfig, createAccessKey } = require('../lib/config.cjs');
 const gatewayEngine=process.env.SCROLLBRIDGE_GATEWAY_ENGINE || require('../package.json').gatewayEngine || 'node';
 const { startGateway } = require(gatewayEngine==='go'?'../lib/go-gateway.cjs':'../lib/gateway.cjs');
@@ -12,8 +13,9 @@ const {localCheck,publicCheck}=require('../lib/diagnostics.cjs');
 const {fetchModels,modelKey,modelName}=require('../lib/models.cjs');
 const {uid,newKey,syncModels,entries}=require('../lib/policy.cjs');
 app.setName('ScrollBridge');
+const configDirectory = dataDirectory({testDirectory:process.env.SCROLLBRIDGE_TEST_DATA,portableFile:process.env.PORTABLE_EXECUTABLE_FILE,packaged:app.isPackaged,executable:app.getPath('exe'),appPath:app.getAppPath()});
 // Both desktop editions and every portable filename share the same identity.
-const profileDirectory = process.env.SCROLLBRIDGE_TEST_DATA || path.join(app.getPath('appData'), 'ScrollBridge');
+const profileDirectory = process.env.SCROLLBRIDGE_TEST_PROFILE || process.env.SCROLLBRIDGE_TEST_DATA || path.join(app.getPath('appData'), 'ScrollBridge');
 fs.mkdirSync(profileDirectory, {recursive:true});
 app.setPath('userData', profileDirectory);
 const ownsProfile = app.requestSingleInstanceLock();
@@ -43,17 +45,18 @@ async function probe(url, key, isPublic = false) {
 async function save(payload = {}) {
   if(['accessKeys','modelRules'].some(field=>payload.config?.[field]!==undefined) || payload.accessKey!==undefined)throw new Error('请通过密钥或模型页面编辑');
   const next = validateConfig({ ...config, ...payload.config });
-  if ((gateway || tunnel) && (payload.clearUpstreamKey || ['upstream', 'port', 'hostname', 'protocol'].some(k => next[k] !== config[k]) || ['upstreamKey', 'tunnelToken', 'accessKey'].some(k => payload[k]))) throw new Error('请先停止连接再保存连接配置');
+  if ((gateway || tunnel) && (payload.clearUpstreamKey || ['upstream', 'port', 'hostname', 'protocol'].some(k => next[k] !== config[k]) || ['upstreamKey', 'tunnelToken'].some(k => payload[k]))) throw new Error('请先停止连接再保存连接配置');
   const nextSecrets = { ...secrets };
   if (payload.clearUpstreamKey) nextSecrets.upstreamKey = '';
   for (const key of ['upstreamKey', 'tunnelToken']) if (payload[key] !== undefined && payload[key] !== '') {
     if (typeof payload[key] !== 'string' || payload[key].length > 8192 || /[\r\n]/.test(payload[key])) throw new Error('密钥格式不正确');
     nextSecrets[key] = payload[key].trim();
   }
+  const loginChanged=next.launchAtLogin!==config.launchAtLogin;
   store.save(next, nextSecrets); config = next; secrets = nextSecrets;
   if (payload.config?.diagnosticModel !== undefined || payload.config?.diagnosticKeyId !== undefined) publicDiagnostic = null;
   if (payload.config?.hostname !== undefined || payload.tunnelToken || payload.clearUpstreamKey || payload.upstreamKey || payload.config?.upstream !== undefined) {localDiagnostic=null;publicDiagnostic=null;}
-  app.setLoginItemSettings({ openAtLogin: !!config.launchAtLogin, path: process.env.PORTABLE_EXECUTABLE_FILE || app.getPath('exe') });
+  if(loginChanged)app.setLoginItemSettings({ openAtLogin:!!config.launchAtLogin,path:process.env.PORTABLE_EXECUTABLE_FILE || app.getPath('exe') });
   await synchronizeGateway();publish(); return view();
 }
 const actions = {
@@ -112,9 +115,9 @@ const actions = {
     state('starting');
     try {
       await probe(`${config.upstream}/v1/models`, secrets.upstreamKey);
-      gateway = await startGateway(config, secrets, record => { const index=record.id?records.findIndex(row=>row.id===record.id):-1;if(index>=0)records[index]=record;else records.unshift(record);records=records.slice(0,200);publish(); }, { executable:app.isPackaged?path.join(process.resourcesPath,'vendor','scrollbridge-gateway.exe'):path.join(app.getAppPath(),'vendor','scrollbridge-gateway.exe'),stateDir:path.join(app.getPath('userData'),'gateway-go'),onExit:()=>{void stop().then(()=>state('error','网关意外退出，请重新连接'));},getConfig:()=>config,getSecrets:()=>secrets,getImagesEnabled: () => config.imagesEnabled, getGeminiImageCompatibility: () => config.geminiImageCompatibility });
+      gateway = await startGateway(config, secrets, record => { const index=record.id?records.findIndex(row=>row.id===record.id):-1;if(index>=0)records[index]=record;else records.unshift(record);records=records.slice(0,200);publish(); }, { executable:app.isPackaged?path.join(process.resourcesPath,'vendor','scrollbridge-gateway.exe'):path.join(app.getAppPath(),'vendor','scrollbridge-gateway.exe'),stateDir:path.join(app.getPath('userData'),'gateway-go'),onExit:()=>{void stop().then(()=>state('error','网关意外退出，请重新连接'));},getConfig:()=>config,getSecrets:()=>secrets });
       const executable = app.isPackaged ? path.join(process.resourcesPath, 'vendor', 'cloudflared.exe') : path.join(app.getAppPath(), 'vendor', 'cloudflared.exe');
-      tunnel = startTunnel({ executable, token: secrets.tunnelToken, protocol: config.protocol, runtimeDir: path.join(app.getPath('userData'), 'runtime'), onState: state, onLog: log });
+      tunnel = startTunnel({ executable, token: secrets.tunnelToken, protocol: config.protocol, onState: state, onLog: log });
       log('网关已启动，等待隧道连接');
       return view();
     } catch (e) { await stop(); state('error', e.message); throw e; }
@@ -133,14 +136,15 @@ const actions = {
     if (gateway) throw new Error('请先停止连接');
     if (!config.hostname) throw new Error('请先保存域名');
     const result = await provision({ ...payload, hostname: config.hostname, port: config.port });
-    secrets.tunnelToken = result.tunnelToken;
-    try { store.save(config, secrets); } catch { throw new Error(`域名已绑定，但本地保存失败。请在 Cloudflare 隧道 ${result.tunnelId} 中重新获取令牌`); }
+    const nextSecrets={...secrets,tunnelToken:result.tunnelToken};
+    try { store.save(config,nextSecrets); } catch { throw new Error(`域名已绑定，但本地保存失败。请在 Cloudflare 隧道 ${result.tunnelId} 中重新获取令牌`); }
+    secrets=nextSecrets;
     log(`已绑定 ${config.hostname}`); publish(); return { ok: true, message: '域名与隧道已创建，令牌已加密保存' };
   },
   openCloudflare: () => shell.openExternal('https://dash.cloudflare.com/'),
   openGuide: () => shell.openExternal('https://developers.cloudflare.com/tunnel/get-started/'),
   clearLogs: () => { records = []; logs = []; publish(); return true; },
-  openData: () => shell.openPath(app.getPath('userData'))
+  openData: () => shell.openPath(configDirectory)
 };
 async function createWindow() {
   window = new BrowserWindow({ title: '卷桥', show: process.env.SCROLLBRIDGE_SMOKE !== '1', width: 1160, height: 850, minWidth: 960, minHeight: 700, backgroundColor: '#f7f4ed', autoHideMenuBar: true, icon: path.join(app.getAppPath(), 'ui', 'icon.png'), webPreferences: { preload: path.join(__dirname, 'preload.cjs'), nodeIntegration: false, contextIsolation: true, sandbox: true, spellcheck: false } });
@@ -153,15 +157,15 @@ app.on('second-instance', () => { if (window) { window.show(); window.focus(); }
 app.whenReady().then(async () => {
   if (!ownsProfile) return;
   session.defaultSession.setPermissionRequestHandler((_, __, cb) => cb(false));
-  store = new Store(app.getPath('userData'), safeStorage);
+  store = new Store(configDirectory, safeStorage);
   try { ({ config, secrets } = store.load()); } catch (e) {
-    const reportPath = path.join(profileDirectory, 'startup-error.json');
+    const reportPath = path.join(configDirectory, 'startup-error.json');
     let reportSaved = false;
     try {
       fs.writeFileSync(reportPath, JSON.stringify({
         time: new Date().toISOString(), appVersion: app.getVersion(),
         executable: process.env.PORTABLE_EXECUTABLE_FILE || process.execPath,
-        configPath: store.filename, legacyConfigPath: path.join(profileDirectory,'settings.json'),
+        configPath: store.filename,
         expectedFormat: 2, configShape: e.configShape || null
       }, null, 2), {mode:0o600});
       reportSaved = true;
@@ -169,8 +173,7 @@ app.whenReady().then(async () => {
     dialog.showErrorBox('卷桥', `${e.message}\n\n程序版本：${app.getVersion()}\n配置位置：${store.filename}${reportSaved ? '\n错误记录：' + reportPath : ''}\n已有配置未被覆盖。`);
     closing = true; app.quit(); return;
   }
-  // Delete a token file left by an interrupted previous process.
-  try { fs.unlinkSync(path.join(app.getPath('userData'), 'runtime', 'tunnel-token')); } catch {}
+  if(config.launchAtLogin)app.setLoginItemSettings({openAtLogin:true,path:process.env.PORTABLE_EXECUTABLE_FILE || app.getPath('exe')});
   ipcMain.handle('bridge', async (event, action, payload) => {
     if (event.sender !== window?.webContents || event.senderFrame !== window.webContents.mainFrame || !Object.hasOwn(actions, action)) throw new Error('请求无效');
     const mutation = ['save', 'start', 'stop', 'import', 'bind', 'rotateKey', 'refreshModels', 'setModelAccess','saveKey','deleteKey','saveAliases'].includes(action);

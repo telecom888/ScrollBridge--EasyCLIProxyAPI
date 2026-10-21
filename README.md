@@ -4,7 +4,9 @@
 
 ## 启动
 
-双击 `release/ScrollBridge-0.2.1-win-x64.exe`，无需安装 Node.js、管理员权限或开放入站端口。保持原代理工具运行。
+双击 `release/ScrollBridge-0.3.5-win-x64.exe`，无需安装 Node.js、管理员权限或开放入站端口。保持原代理工具运行。
+
+配置文件为 exe 同目录的 `scrollbridge.json`。普通版和 beta 版放在同一目录时共享配置；升级时将新 exe 放入该目录即可。移动到其他目录时请同时带上配置文件。目录必须可写，不会回退到 C 盘另建配置。密钥仍依赖原 Windows 账户和 Electron 加密环境；用户数据目录的 Local State 属于加密环境，不作为旧业务配置删除。Electron 缓存、单实例锁和 Go 运行账本继续由用户数据目录管理。
 
 连接运行时，点击锁定的配置项会提示「请先停止连接再修改配置」。停止连接后即可编辑。
 
@@ -32,7 +34,7 @@
 
 「记录」显示密钥名称、请求模型和实际模型，不保存完整密钥、提示词或图片。WebSocket 的状态 200 表示网关接受并转发，实际生成结果由上游决定。
 
-配置文件仅支持新版 `version: 2`，不在启动时自动迁移。已有配置可在关闭旧程序后执行一次 `electron scripts/convert-settings.cjs 配置目录`；它会备份旧文件、保留原访问密钥及连接参数，再写入新版配置。添加 `--check` 只检查能否转换，不写配置；添加 `--refresh-models` 会同时读取本地代理的当前模型目录，不发送生成请求。
+配置文件仅支持当前的 `version: 2`，启动不扫描或导入旧版配置。历史迁移工具与旧格式运行分支已移除。普通配置变更复用已有密文；只有密钥变更时才加密，无变更保存不写盘。保存使用临时文件、同步落盘和原子替换，不产生持久备份文件。
 
 ## 图像接口
 
@@ -106,7 +108,7 @@ API 令牌最小权限：目标账户 **Cloudflare Tunnel: Edit**，目标区域
 - 命名 Tunnel 提供固定域名与 SSE。Quick Tunnel 官方不支持 SSE，因此应用不提供该模式。
 - 外部访问密钥独立随机生成；通过 Bearer、Anthropic 和 Google 方式验证后，替换成本地代理客户端密钥。模型接口白名单之外的管理面板、OAuth、任意地址转发均被拒绝。
 - 网关仅监听 `127.0.0.1`；本地上游也限制回环地址。HTTPS 上游保留证书校验，不提供跳过校验选项。
-- 外部密钥、本地密钥、隧道令牌由 Electron safeStorage 使用 Windows DPAPI 加密，保存在 `%APPDATA%/ScrollBridge/settings.v2.json`。首次启动会导入旧 `settings.json` 并保留原文件。配置绑定当前 Windows 用户。隧道令牌通过子进程环境传递，不在命令行或明文文件中保存。
+- 外部密钥、本地密钥、隧道令牌由 Electron safeStorage 使用 Windows DPAPI 加密，保存在 exe 同目录 `scrollbridge.json`。配置绑定当前 Windows 用户。隧道令牌通过子进程环境传递，不在命令行或明文文件中保存。
 - 日志只在内存保留最近 200 条请求、100 条隧道消息，不记录正文和查询参数。退出即清空。复制密钥后系统剪贴板中会保留该值。
 - 单请求上限 32 MiB，最多 64 个并发上游请求，闲置上游超时 10 分钟，HTTP 请求最长 30 分钟。流使用管道背压，客户端断开会取消上游。
 - 连接运行时关闭主窗口会缩到托盘；从托盘「退出」停止隧道和网关。应用不会启动或退出原代理工具。开机启动只打开卷桥，不自动向公网发布。
@@ -145,15 +147,11 @@ UI 先用内置 ImageGen 生成参考，再实现原生代码界面。参考图�
 
 ## Go 网关 beta
 
-分支 `beta/go-gateway` 同时交付两个桌面版本：`ScrollBridge-0.3.3-win-x64.exe` 保留 Node 网关，`ScrollBridge-0.3.3-beta-win-x64.exe` 使用 Go 网关。两者复用桌面布局、Windows 加密配置及隧道管理，界面不标注技术栈，后者仅在版本号显示 beta。新增费用设置和记录位于 beta 版。
+分支 `beta/go-gateway` 同时交付两个桌面版本：`ScrollBridge-0.3.5-win-x64.exe` 保留 Node 网关，`ScrollBridge-0.3.5-beta-win-x64.exe` 使用 Go 网关。两者复用桌面布局、Windows 加密配置及隧道管理，界面不标注技术栈，后者仅在版本号显示 beta。新增费用设置和记录位于 beta 版。
 
-Go 已移植 WebSocket、multipart 图像编辑、Gemini 图像生成兼容、gzip/deflate/Brotli、单模型详情及过滤后的上游模型目录。两版共用原有配置目录和单实例锁，请退出一版再打开另一版。现有配置在加载时补齐可选字段，不清空密钥或域名。
+Go 已移植 WebSocket、multipart 图像编辑、Gemini 图像生成兼容、gzip/deflate/Brotli、单模型详情及过滤后的上游模型目录。两版在同目录共用配置，使用同一单实例锁，请退出一版再打开另一版。
 
-0.3.1 固定使用 `%APPDATA%/ScrollBridge`，在申请单实例锁前设置路径；未获得锁的进程不读取或写入配置。首次安装立即持久化密钥，后续启动仅读取；配置更新前保留 `settings.json.bak` 加密备份。发现主配置缺失但有备份或临时文件时停止启动，避免把旧安装误认为首次安装而产生新密钥。格式错误会提示实际配置路径，原文件保留；旧版配置仍由转换工具处理。可运行 `node scripts/profile-upgrade-smoke.cjs` 验证两种桌面版本共用加密配置、重复启动后密钥不变。
-
-0.3.2 在启动读取失败时写入配置目录下的 `startup-error.json`，记录时间、程序版本、可执行文件路径、实际配置路径及格式结构；不记录凭证、提示词或配置内容。弹窗显示程序版本及错误记录位置。后续真实启动记录确认错误进程读到的文件版本为 1，而 0.2.0 起启动仅接受版本 2。
-
-0.3.3 首次启动从旧 `settings.json` 自动导入 v1 或 v2，验证并保持密钥、代理凭证、隧道令牌及权限后写入独立的 `settings.v2.json`。旧文件原样保留；两种当前桌面版本共用新版文件，旧可执行文件对旧文件的写入不会改动当前密钥。已有新版文件损坏或缺失但存在其备份时停止启动，不回退到陈旧旧文件。只支持一次性迁移，不维护旧版运行协议。`node scripts/legacy-migration-smoke.cjs` 验证实际 Windows 加密下的 v1 启动转换；`node scripts/startup-error-smoke.cjs` 验证格式错误记录脱敏及源文件保留。
+配置相关验证：`node scripts/profile-upgrade-smoke.cjs` 检查两种版本反复启动、单实例和密钥保持；`node scripts/portable-location-smoke.cjs` 实际复制、重命名两份便携 exe，验证配置位于外层 exe 同目录而非临时解包目录或用户数据目录；`node scripts/portable-duplicate-smoke.cjs` 验证重复启动不会删除在用资源；`node scripts/startup-error-smoke.cjs` 验证错误记录不包含密钥、不会覆盖错误配置。
 
 构建：`node scripts/build-desktop.cjs both`；单独构建可用 `npm run dist:node` / `npm run dist:go`。开发启动默认 Node；先执行 `node scripts/build-desktop.cjs core`，再设置 `SCROLLBRIDGE_GATEWAY_ENGINE=go` 可在开发环境测试 Go 桌面版。
 

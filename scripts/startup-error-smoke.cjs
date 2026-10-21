@@ -3,7 +3,7 @@ const {spawnSync}=require('node:child_process');
 const root=path.resolve(__dirname,'..'),profile=path.join(root,'.test-output','format-error-'+Date.now());
 fs.mkdirSync(profile,{recursive:true});
 const original=JSON.stringify({version:1,config:{},secrets:'private-test-value'});
-fs.writeFileSync(path.join(profile,'settings.v2.json'),original);
+fs.writeFileSync(path.join(profile,'scrollbridge.json'),original);
 const bootstrap=path.join(profile,'bootstrap.cjs');
 // Resolve the Electron API from the application's runtime, not its npm launcher.
 fs.writeFileSync(bootstrap,`
@@ -21,6 +21,6 @@ const report=fs.readFileSync(path.join(profile,'startup-error.json'),'utf8');
 assert.equal(JSON.parse(report).configShape.version,1);
 assert.equal(JSON.parse(report).expectedFormat,2);
 assert.equal(report.includes('private-test-value'),false);
-assert.equal(fs.readFileSync(path.join(profile,'settings.v2.json'),'utf8'),original);
+assert.equal(fs.readFileSync(path.join(profile,'scrollbridge.json'),'utf8'),original);
 assert.match(fs.readFileSync(path.join(profile,'dialog.txt'),'utf8'),/startup-error\.json/);
 console.log('Actual Electron startup records format failure without exposing credentials or overwriting settings');

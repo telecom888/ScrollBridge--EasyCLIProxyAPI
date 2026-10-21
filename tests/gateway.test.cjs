@@ -12,14 +12,15 @@ async function fixture(t, handler, options = {}) {
   const records = [];
   const key=newKey();
   const config=syncModels(validateConfig({upstream:`http://127.0.0.1:${upstream.address().port}`,port,accessKeys:[key]}),['test','image-test','blocked','open','gemini-3.1-flash-image','gemini-quota-image','gpt-image-2','chat-test','gemini-test']);
-  const g = await startGateway(config, {keyValues:{[key.id]:KEY},upstreamKey:UPSTREAM_KEY,tunnelToken:''}, r => records.push(r), options);
+  const getConfig=()=>({...config,...Object.fromEntries(Object.entries(options).map(([field,get])=>[field,get()]))});
+  const g = await startGateway(config, {keyValues:{[key.id]:KEY},upstreamKey:UPSTREAM_KEY,tunnelToken:''}, r => records.push(r), {getConfig});
   t.after(async () => { await g.close(); upstream.closeAllConnections(); await new Promise(r => upstream.close(r)); });
   return {upstream,base:`http://127.0.0.1:${port}`,records};
 }
 const auth = {authorization:`Bearer ${KEY}`};
 test('image endpoints require authentication and explicit opt-in, with live changes', async t => {
   let enabled = false, calls = 0;
-  const {base,records} = await fixture(t, (req,res) => { calls++; req.resume(); res.end('{"data":[]}'); }, {getImagesEnabled:()=>enabled});
+  const {base,records} = await fixture(t, (req,res) => { calls++; req.resume(); res.end('{"data":[]}'); }, {imagesEnabled:()=>enabled});
   for (const path of ['/v1/images/generations','/v1/images/edits']) {
     const send = headers => fetch(base+path,{method:'POST',headers,body:'{"model":"image-test"}'});
     assert.equal((await send({})).status,401);
@@ -39,7 +40,7 @@ test('image JSON bodies preserve bytes and enforce model permissions and require
       assert.deepEqual(Buffer.concat(chunks),zipped); assert.equal(req.headers['content-encoding'],'gzip');
       assert.equal(req.headers.authorization,`Bearer ${UPSTREAM_KEY}`);res.end('{}');
     });
-  }, {getImagesEnabled:()=>true,getDisabledModels:()=>['blocked']});
+  }, {imagesEnabled:()=>true,disabledModels:()=>['blocked']});
   for (const path of ['/v1/images/generations','/v1/images/edits']) {
     const r=await fetch(base+path,{method:'POST',headers:{...auth,'content-type':'application/json','content-encoding':'gzip'},body:zipped});
     assert.equal(r.status,200);await r.text();
@@ -53,7 +54,7 @@ test('multipart image edits preserve binary uploads, log model and reject ambigu
   let calls=0, expected;
   const {base,records}=await fixture(t,(req,res)=>{
     calls++;const chunks=[];req.on('data',c=>chunks.push(c));req.on('end',()=>{assert.deepEqual(Buffer.concat(chunks),expected);res.end('{}');});
-  },{getImagesEnabled:()=>true,getDisabledModels:()=>['blocked']});
+  },{imagesEnabled:()=>true,disabledModels:()=>['blocked']});
   function form(models=['image-test'],fileModel=false) {
     const parts=models.map(model=>Buffer.from(`--test-boundary\r\nContent-Disposition: form-data; name="model"\r\n\r\n${model}\r\n`));
     parts.push(Buffer.from(`--test-boundary\r\nContent-Disposition: form-data; name="${fileModel?'model':'image'}"; filename="image.png"\r\nContent-Type: image/png\r\n\r\n`),Buffer.from([0,255,128,1,13,10]),Buffer.from('\r\n--test-boundary--\r\n'));
@@ -80,7 +81,7 @@ test('RikkaHub Gemini generation converts JSON and compressed requests with live
       res.setHeader('content-type','application/json');
       res.end(req.url.includes('/v1beta/')?JSON.stringify({candidates:[{content:{parts:[{thought:true,inlineData:{mimeType:'image/png',data:'dGhvdWdodA=='}},{inlineData:{mimeType:'image/png',data:image}}]}}]}):'{"passthrough":true}');
     });
-  },{getImagesEnabled:()=>true,getGeminiImageCompatibility:()=>enabled});
+  },{imagesEnabled:()=>true,geminiImageCompatibility:()=>enabled});
   const payload=JSON.stringify({model:'gemini-3.1-flash-image',prompt:'PRIVATE_PROMPT',n:1,size:'1024x1024'});
   let r=await fetch(base+'/v1/images/generations',{method:'POST',headers:auth,body:payload});assert.equal((await r.json()).passthrough,true);
   enabled=true;
@@ -94,13 +95,13 @@ test('RikkaHub Gemini generation converts JSON and compressed requests with live
 });
 test('Gemini image conversion enforces both endpoint and model policy',async t=>{
   let calls=0,open=false;
-  const {base}=await fixture(t,(_,res)=>{calls++;res.end('{}');},{getImagesEnabled:()=>open,getGeminiImageCompatibility:()=>true,getDisabledModels:()=>['gemini-3.1-flash-image']});
+  const {base}=await fixture(t,(_,res)=>{calls++;res.end('{}');},{imagesEnabled:()=>open,geminiImageCompatibility:()=>true,disabledModels:()=>['gemini-3.1-flash-image']});
   const send=()=>fetch(base+'/v1/images/generations',{method:'POST',headers:auth,body:'{"model":"gemini-3.1-flash-image","prompt":"test"}'});
   assert.equal((await send()).status,404);open=true;assert.equal((await send()).status,403);assert.equal(calls,0);
 });
 test('Gemini image edits convert RikkaHub multipart reference images without fetching URLs',async t=>{
   let seen;
-  const {base}=await fixture(t,(req,res)=>{const chunks=[];req.on('data',c=>chunks.push(c));req.on('end',()=>{seen=JSON.parse(Buffer.concat(chunks));res.end('{"candidates":[{"content":{"parts":[{"inline_data":{"mime_type":"image/webp","data":"aW1hZ2U="}}]}}]}');});},{getImagesEnabled:()=>true,getGeminiImageCompatibility:()=>true});
+  const {base}=await fixture(t,(req,res)=>{const chunks=[];req.on('data',c=>chunks.push(c));req.on('end',()=>{seen=JSON.parse(Buffer.concat(chunks));res.end('{"candidates":[{"content":{"parts":[{"inline_data":{"mime_type":"image/webp","data":"aW1hZ2U="}}]}}]}');});},{imagesEnabled:()=>true,geminiImageCompatibility:()=>true});
   const form=new FormData();form.set('model','gemini-3.1-flash-image');form.set('prompt','Edit reference');form.set('n','1');form.set('size','auto');form.append('image',new Blob([Buffer.from([0,255,128,13,10])],{type:'image/png'}),'test.png');
   let r=await fetch(base+'/v1/images/edits',{method:'POST',headers:auth,body:form});assert.equal(r.status,200);assert.equal((await r.json()).data[0].output_format,'webp');
   assert.deepEqual(Buffer.from(seen.contents[0].parts[1].inlineData.data,'base64'),Buffer.from([0,255,128,13,10]));
@@ -113,7 +114,7 @@ test('Gemini image errors preserve upstream status and cancellation aborts gener
   const {base}=await fixture(t,(req,res)=>{
     if(req.url.includes('quota')){res.writeHead(429,{'content-type':'application/json'});res.end('{"error":{"message":"Quota exhausted"}}');}
     else {req.resume();res.on('close',abortResolve);res.writeHead(200,{'content-type':'application/json'});res.write('{');}
-  },{getImagesEnabled:()=>true,getGeminiImageCompatibility:()=>true});
+  },{imagesEnabled:()=>true,geminiImageCompatibility:()=>true});
   let r=await fetch(base+'/v1/images/generations',{method:'POST',headers:auth,body:'{"model":"gemini-quota-image","prompt":"test"}'});assert.equal(r.status,429);assert.match(await r.text(),/Quota exhausted/);
   const controller=new AbortController();const pending=fetch(base+'/v1/images/generations',{method:'POST',headers:auth,body:'{"model":"gemini-3.1-flash-image","prompt":"test"}',signal:controller.signal});
   const reject=assert.rejects(pending);setTimeout(()=>controller.abort(),100);
@@ -187,7 +188,7 @@ test('logs model names for all three protocols without logging prompts', async t
   assert.ok(!JSON.stringify(records).includes('PRIVATE_PROMPT'));
 });
 test('disabled models are denied before reaching upstream across protocols and compressed bodies',async t=>{
-  let calls=0;const {base,records}=await fixture(t,(_,res)=>{calls++;res.end('{}');},{getDisabledModels:()=>['blocked']});
+  let calls=0;const {base,records}=await fixture(t,(_,res)=>{calls++;res.end('{}');},{disabledModels:()=>['blocked']});
   for(const path of ['/v1/chat/completions','/v1/responses','/v1/responses/compact','/v1/completions','/v1/embeddings','/v1/messages','/v1/messages/count_tokens','/v1beta/interactions','/v1beta/models/blocked:generateContent','/v1beta/models/blocked:streamGenerateContent','/v1beta/models/blocked:countTokens']) {
     const r=await fetch(base+path,{method:'POST',headers:auth,body:JSON.stringify({model:'models/BLOCKED'})});assert.equal(r.status,403,path);await r.text();
   }
@@ -197,14 +198,14 @@ test('disabled models are denied before reaching upstream across protocols and c
 });
 test('model lists hide disabled entries and live policy changes take effect without restart',async t=>{
   let disabled=['blocked'];
-  const {base}=await fixture(t,(req,res)=>{res.setHeader('content-type','application/json');if(req.method==='POST'){req.resume();return res.end('{}');}const json=req.url.startsWith('/v1beta')?{models:[{name:'models/blocked'},{name:'models/open'}],nextPageToken:'next'}:{data:[{id:'blocked'},{id:'open'}]};const bytes=zlib.gzipSync(JSON.stringify(json));res.writeHead(200,{'content-encoding':'gzip','content-length':bytes.length,etag:'old-etag'});res.end(bytes);},{getDisabledModels:()=>disabled});
+  const {base}=await fixture(t,(req,res)=>{res.setHeader('content-type','application/json');if(req.method==='POST'){req.resume();return res.end('{}');}const json=req.url.startsWith('/v1beta')?{models:[{name:'models/blocked'},{name:'models/open'}],nextPageToken:'next'}:{data:[{id:'blocked'},{id:'open'}]};const bytes=zlib.gzipSync(JSON.stringify(json));res.writeHead(200,{'content-encoding':'gzip','content-length':bytes.length,etag:'old-etag'});res.end(bytes);},{disabledModels:()=>disabled});
   const openai=await fetch(base+'/v1/models',{headers:auth});assert.equal(openai.headers.get('content-encoding'),null);assert.equal(openai.headers.get('etag'),null);assert.deepEqual((await openai.json()).data.map(m=>m.id),['open']);
   const google=await(await fetch(base+'/v1beta/models',{headers:auth})).json();assert.deepEqual(google.models.map(m=>m.name),['models/open']);assert.equal(google.nextPageToken,'next');
   disabled=[];const r=await fetch(base+'/v1/messages',{method:'POST',headers:auth,body:'{"model":"blocked"}'});assert.equal(r.status,200);await r.text();
   disabled=['open'];const denied=await fetch(base+'/v1/messages',{method:'POST',headers:auth,body:'{"model":"open"}'});assert.equal(denied.status,403);
 });
 test('websocket blocks disabled models and inherited models after a live policy change',async t=>{
-  let disabled=['blocked'],forwards=0;const {base,upstream,records}=await fixture(t,(_,res)=>res.end(),{getDisabledModels:()=>disabled});const wss=new WebSocketServer({server:upstream});wss.on('connection',ws=>ws.on('message',data=>{forwards++;ws.send(data);}));t.after(()=>{for(const c of wss.clients)c.terminate();wss.close();});
+  let disabled=['blocked'],forwards=0;const {base,upstream,records}=await fixture(t,(_,res)=>res.end(),{disabledModels:()=>disabled});const wss=new WebSocketServer({server:upstream});wss.on('connection',ws=>ws.on('message',data=>{forwards++;ws.send(data);}));t.after(()=>{for(const c of wss.clients)c.terminate();wss.close();});
   const ws=new WebSocket(base.replace('http:','ws:')+'/v1/responses',{headers:auth});ws.on('error',()=>{});await once(ws,'open');
   ws.send('{"type":"response.create","model":"blocked"}');assert.equal(JSON.parse((await once(ws,'message'))[0]).status,403);assert.equal(forwards,0);
   ws.send('{"type":"response.create","model":"open","input":"hello"}');await once(ws,'message');assert.equal(forwards,1);

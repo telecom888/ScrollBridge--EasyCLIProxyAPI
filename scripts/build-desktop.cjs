@@ -14,7 +14,10 @@ const builder=require('electron-builder');
   const buildDir=path.join(root,'.test-output','desktop-'+engine+'-'+Date.now());builds[engine]=buildDir;
   // An explicit complete config avoids electron-builder concatenating the
   // package.json and override resource arrays and copying the same exe twice.
-  const config={...JSON.parse(JSON.stringify(require('../package.json').build)),directories:{output:buildDir},extraMetadata:{gatewayEngine:engine,version},extraResources:[{from:'vendor',to:'vendor',filter:engine==='go'?['cloudflared.exe','scrollbridge-gateway.exe']:['cloudflared.exe']}],portable:{artifactName:`ScrollBridge-${version}-win-x64.exe`}};
+  // In the installed builder, true omits UNPACK_DIR_NAME and uses NSIS's
+  // per-launch $PLUGINSDIR. false follows the shared build-ID branch despite
+  // the type documentation claiming otherwise. See portable-duplicate-smoke.
+  const config={...JSON.parse(JSON.stringify(require('../package.json').build)),directories:{output:buildDir},extraMetadata:{gatewayEngine:engine,version},extraResources:[{from:'vendor',to:'vendor',filter:engine==='go'?['cloudflared.exe','scrollbridge-gateway.exe']:['cloudflared.exe']}],portable:{artifactName:`ScrollBridge-${version}-win-x64.exe`,unpackDirName:true}};
   const configFile=buildDir+'.json';fs.writeFileSync(configFile,JSON.stringify(config,null,2));
   await builder.build({projectDir:root,targets:builder.Platform.WINDOWS.createTarget(['portable'],builder.Arch.x64),config:configFile});
   const name=`ScrollBridge-${version}-win-x64.exe`;fs.copyFileSync(path.join(buildDir,name),path.join(root,'release',name));

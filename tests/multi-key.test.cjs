@@ -30,7 +30,7 @@ async function fixture(t,handler) {
   config.modelRules[0].aliases=[{id:'alias-a',name:'chat-fast'},{id:'alias-b',name:'assistant'}];
   limited.mode='selected';limited.allowed=['alias-a'];config=validateConfig(config);
   let secrets={upstreamKey:'private-upstream',tunnelToken:'',keyValues:{[all.id]:createAccessKey(),[limited.id]:createAccessKey()}};
-  const records=[],gateway=await startGateway(config,secrets,row=>records.push(row),{stateDir:require('node:path').resolve('.test-output','go-contract-'+require('node:crypto').randomUUID()),getConfig:()=>config,getSecrets:()=>secrets,getImagesEnabled:()=>config.imagesEnabled,getGeminiImageCompatibility:()=>config.geminiImageCompatibility});
+  const records=[],gateway=await startGateway(config,secrets,row=>records.push(row),{stateDir:require('node:path').resolve('.test-output','go-contract-'+require('node:crypto').randomUUID()),getConfig:()=>config,getSecrets:()=>secrets});
   t.after(async()=>{await gateway.close();upstream.closeAllConnections();await new Promise(r=>upstream.close(r));});
   return {base:`http://127.0.0.1:${port}`,server:gateway.server,gateway,upstream,seen,records,all,limited,get config(){return config;},get secrets(){return secrets;},auth:(key=all)=>({authorization:`Bearer ${secrets.keyValues[key.id]}`}),update:async fn=>{const next=structuredClone(config);fn(next);config=validateConfig(next);await gateway.refreshPolicy();},rotate:async key=>{secrets={...secrets,keyValues:{...secrets.keyValues,[key.id]:createAccessKey()}};await gateway.refreshPolicy();}};
 }

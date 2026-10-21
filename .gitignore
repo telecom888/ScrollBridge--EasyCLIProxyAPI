@@ -6,6 +6,8 @@ vendor/*.exe
 .env*
 config.json
 secrets*
+scrollbridge.json
+scrollbridge.json.tmp
 .beta-state/
 .beta-node-*/
 beta/go-gateway/config.beta.json

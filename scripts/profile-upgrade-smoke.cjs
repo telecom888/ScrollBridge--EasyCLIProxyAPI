@@ -12,7 +12,7 @@ const {spawn}=require('node:child_process');
   const app=await _electron.launch({executablePath:path.join(builds[engine],'win-unpacked','卷桥.exe'),env});
   try{
    const page=await app.firstWindow();await page.waitForFunction(()=>!!snapshot);
-   const file=path.join(profile,'settings.v2.json');
+   const file=path.join(profile,'scrollbridge.json');
    if(!reference){reference=fs.readFileSync(file);fs.writeFileSync(path.join(profile,'reference.encrypted'),reference);}
    assert.deepEqual(fs.readFileSync(file),reference,'startup must not rewrite encrypted settings');
    const preserved=await app.evaluate(({app,safeStorage})=>{
