@@ -11,6 +11,7 @@
   <nav aria-label="主导航">
     <button class="nav active" data-page="connection"><span data-icon="plug"></span>连接</button>
     <button class="nav" data-page="access"><span data-icon="code"></span>接入</button>
+    <button class="nav" data-page="keys"><span data-icon="lock"></span>密钥</button>
     <button class="nav" data-page="catalog"><span data-icon="models"></span>模型</button>
     <button class="nav" data-page="records"><span data-icon="file"></span>记录</button>
     <button class="nav" data-page="settings"><span data-icon="settings"></span>设置</button>
@@ -29,6 +30,9 @@
       <div class="form-footer"><button type="button" class="text-button" id="open-binding"><span data-icon="globe"></span>绑定域名</button><div><button type="button" class="secondary" id="test-local">检测本地服务</button><button type="submit" class="primary small">保存配置</button></div></div>
     </form>
     <div class="protocol-section"><div class="section-head"><h2>协议端点</h2><button class="text-button" id="show-access">调用示例<span data-icon="arrow"></span></button></div><div class="protocol-grid"><button class="protocol" data-protocol="openai"><span class="protocol-mark">O</span><strong>OpenAI</strong><code>/v1</code><span class="protocol-arrow" data-icon="arrow"></span></button><button class="protocol" data-protocol="anthropic"><span class="protocol-mark serif">A</span><strong>Anthropic</strong><code>/v1/messages</code><span class="protocol-arrow" data-icon="arrow"></span></button><button class="protocol" data-protocol="google"><span class="protocol-mark">G</span><strong>Google</strong><code>/v1beta</code><span class="protocol-arrow" data-icon="arrow"></span></button></div></div>
+  </section>
+  <section id="page-keys" class="page" hidden>
+    <div class="panel"><div class="section-head"><h2>访问密钥</h2><button class="primary small" id="new-key">新建密钥</button></div><p>为不同客户端分配密钥和可用模型。</p><div id="key-list"></div></div>
   </section>
   <section id="page-access" class="page" hidden>
     <div class="panel"><div class="section-head"><h2>外部访问</h2><button class="secondary" id="test-public">检测 HTTPS</button></div><div class="endpoint-row"><code id="public-base">请先配置域名</code><button class="icon-button" id="copy-base" aria-label="复制地址"><span data-icon="copy"></span></button></div><div class="key-row"><div><strong>访问密钥</strong><p>用于外部客户端，与本地代理密钥分开</p></div><div><button class="secondary" id="rotate-key">更换</button><button class="primary small" id="copy-key"><span data-icon="copy"></span>复制密钥</button></div></div></div>
@@ -52,6 +56,10 @@
 </main>
 <div id="toast" role="status" hidden></div>
 <dialog id="confirm-dialog"><h2>更换访问密钥？</h2><p>原密钥会立即失效，需要更新外部客户端。</p><div class="dialog-actions"><button id="cancel-rotate" class="secondary">取消</button><button id="confirm-rotate" class="primary small">更换密钥</button></div></dialog>
+<dialog id="key-dialog" class="management-dialog"><form id="key-form"><div class="section-head"><h2 id="key-dialog-title">新建密钥</h2><button type="button" class="text-button" data-close="key-dialog">取消</button></div><label>名称<input id="key-name" required maxlength="80" autocomplete="off" placeholder="例如：手机"></label><div class="setting-row"><strong>启用密钥</strong><input type="checkbox" role="switch" id="key-enabled" aria-label="启用密钥" checked></div><div class="setting-row"><div><strong>全部模型</strong><p>自动包含新增模型，仍受全局限制。</p></div><input type="checkbox" role="switch" id="key-all" aria-label="全部模型" checked></div><label class="permission-search">搜索模型<input type="search" id="permission-search" placeholder="搜索对外 ID 或实际模型"></label><div id="key-permissions" class="permissions"></div><div class="dialog-actions"><button type="submit" class="primary small">保存</button></div></form></dialog>
+<dialog id="alias-dialog" class="management-dialog"><form id="alias-form"><div class="section-head"><h2>对外模型 ID</h2><button type="button" class="text-button" data-close="alias-dialog">取消</button></div><p id="alias-actual"></p><div class="setting-row"><div><strong>保留原始 ID</strong><p>设置别名后，也允许通过原始 ID 调用。</p></div><input type="checkbox" role="switch" id="alias-keep" aria-label="保留原始 ID"></div><div id="alias-rows"></div><button type="button" class="text-button" id="add-alias">添加别名</button><p class="note">不设置别名时使用原始 ID。</p><div class="dialog-actions"><button type="submit" class="primary small">保存</button></div></form></dialog>
+<dialog id="key-confirm-dialog"><h2 id="key-confirm-title"></h2><p id="key-confirm-message"></p><div class="dialog-actions"><button class="secondary" data-close="key-confirm-dialog">取消</button><button id="key-confirm" class="primary small">确认</button></div></dialog>
 <script src="motion.js"></script>
+<script src="management.js"></script>
 <script src="app.js"></script>
 </body></html>

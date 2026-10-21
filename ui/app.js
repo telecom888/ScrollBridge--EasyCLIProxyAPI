@@ -39,7 +39,7 @@ function page(name) {
   document.querySelectorAll('.page').forEach(el => el.hidden = el.id !== `page-${name}`);
   const selected = document.querySelector(`.nav[data-page="${name}"]`);
   moveSelection(selected.parentElement, selected);
-  $('page-title').textContent = {connection:'连接',access:'接入',catalog:'模型',records:'记录',settings:'设置'}[name];
+  $('page-title').textContent = {connection:'连接',access:'接入',keys:'密钥',catalog:'模型',records:'记录',settings:'设置'}[name];
   reveal($(`page-${name}`)); reveal($('page-title'));
 }
 document.querySelectorAll('[data-page]').forEach(el => el.onclick = () => page(el.dataset.page));
@@ -57,14 +57,14 @@ function render(s) {
   $('route-upstream').textContent = s.config.upstream.replace(/^https?:\/\//,''); $('route-host').textContent = s.config.hostname || '尚未配置'; $('public-base').textContent = s.config.hostname ? `https://${s.config.hostname}` : '请先配置域名'; $('origin-service').textContent = `http://127.0.0.1:${s.config.port}`;
   $('imagesEnabled').checked = s.config.imagesEnabled;
   $('geminiImageCompatibility').checked = s.config.geminiImageCompatibility;
-  renderDiagnosticModels();
+  renderManagement();renderDiagnosticModels();
   $('version').textContent = `v${s.version}`; renderExample(); renderRecords(); renderDiagnostics(); renderModelCatalog();
 }
 for (const id of ['upstream','port','hostname','upstreamKey','tunnelToken']) $(id).addEventListener('input', () => { dirty = true; });
 async function saveForm() { const s = await call('save', { config: {upstream:$('upstream').value,port:Number($('port').value),hostname:$('hostname').value}, upstreamKey:$('upstreamKey').value,tunnelToken:$('tunnelToken').value }); dirty = false; $('upstreamKey').value = ''; $('tunnelToken').value = ''; render(s); }
 $('connection-form').onsubmit = e => { e.preventDefault(); task(e.submitter, async () => { await saveForm(); toast('配置已保存'); }); };
 $('connect').onclick = () => task($('connect'), async () => { if (snapshot.status !== 'stopped') { render(await call('stop')); return; } if (dirty) await saveForm(); render(await call('start')); });
-async function checkLocal(button) {await task(button,async()=>{if(dirty)await saveForm();$('local-diagnostic-summary').textContent='正在检查进程、监听端口和模型接口…';const result=await call('testLocal');toast(result.message,!result.ok);showModels(result.models);});}
+async function checkLocal(button) {await task(button,async()=>{if(dirty)await saveForm();$('local-diagnostic-summary').textContent='正在检查进程、监听端口和模型接口…';const result=await call('testLocal');toast(result.message,!result.ok);});}
 async function checkPublic(button) {await task(button,async()=>{if(dirty)await saveForm();$('public-diagnostic-summary').textContent='正在通过公网 HTTPS 检查网关与模型响应…';try{const result=await call('testPublic');toast(result.message,!result.ok);}catch(e){$('public-diagnostic-summary').textContent='检测未完成，请检查域名配置';throw e;}});}
 $('test-local').onclick=()=>checkLocal($('test-local'));$('check-process').onclick=()=>checkLocal($('check-process'));
 $('test-public').onclick=()=>checkPublic($('test-public'));$('check-external').onclick=()=>checkPublic($('check-external'));
@@ -92,9 +92,8 @@ async function copy(text) { await call('copy', text); toast('已复制'); }
 $('copy-example').onclick = () => task(null, () => copy($('example-code').textContent));
 $('copy-base').onclick = () => task(null, async () => { if (!snapshot.config.hostname) { toast('请先设置域名', true); return; } await copy(`https://${snapshot.config.hostname}`); });
 $('copy-origin').onclick = () => task(null, () => copy($('origin-service').textContent));
-$('copy-key').onclick = () => task(null, async () => { await call('copyKey'); toast('访问密钥已复制'); });
-$('rotate-key').onclick = () => $('confirm-dialog').showModal(); $('cancel-rotate').onclick = () => $('confirm-dialog').close();
-$('confirm-rotate').onclick = () => task($('confirm-rotate'), async () => { await call('rotateKey'); $('confirm-dialog').close(); toast('密钥已更换，请更新外部客户端'); });
+$('copy-key').onclick = () => task(null, async () => { await call('copyKey',{id:$('access-key').value}); toast('访问密钥已复制'); });
+$('rotate-key').textContent='管理密钥';$('rotate-key').onclick = () => page('keys');
 async function changeSetting(patch) { const s = await call('save', {config:patch}); render(s); toast('设置已保存'); }
 $('theme-toggle').onclick = () => task(null, () => changeSetting({theme:document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'}));
 document.querySelectorAll('[data-theme]').forEach(el => el.onclick = () => task(el, () => changeSetting({theme:el.dataset.theme})));
@@ -105,8 +104,7 @@ $('diagnostic-model').onchange = () => task($('diagnostic-model'), async () => {
 $('refresh-diagnostic-models').onclick = () => task($('refresh-diagnostic-models'), async () => { if(dirty) await saveForm(); render(await call('refreshModels')); toast('模型列表已更新'); });
 function renderDiagnosticModels() {
   const select=$('diagnostic-model'), selected=snapshot.config.diagnosticModel || '';
-  const disabled=new Set(snapshot.config.disabledModels || []);
-  const available=[...new Set([...(snapshot.config.knownModels || []),...(snapshot.localDiagnostic?.models || [])])].filter(id=>!disabled.has(canonicalModel(id))).sort();
+  const available=availableEntries(snapshot.config.diagnosticKeyId).map(row=>row.name).sort();
   select.replaceChildren(new Option('自动选择', ''));
   for(const id of available) select.add(new Option(id,id));
   if(selected&&!available.includes(selected)) select.add(new Option(`当前不可用：${selected}`,selected));
@@ -134,12 +132,12 @@ function renderRecords() {
   const requests=$('requests-table');
   if (!snapshot.records.length) replaceContent(requests,`<div class="empty">${icon('file')}暂无请求</div>`);
   else {
-    if(!requests.querySelector('tbody')) requests.innerHTML='<table><thead><tr><th>时间</th><th>方法</th><th>模型</th><th>路径</th><th>状态</th><th>耗时</th></tr></thead><tbody></tbody></table>';
+    if(!requests.querySelector('tbody')) requests.innerHTML='<table><thead><tr><th>时间</th><th>密钥</th><th>方法</th><th>模型</th><th>路径</th><th>状态</th><th>耗时</th></tr></thead><tbody></tbody></table>';
     const occurrences=new Map();
     const rows=snapshot.records.map(r=>{
-      const signature=JSON.stringify([r.time,r.method,r.model,r.path,r.status,r.ms]);
+      const signature=JSON.stringify([r.time,r.keyId,r.method,r.model,r.actualModel,r.path,r.status,r.ms]);
       const count=occurrences.get(signature)||0; occurrences.set(signature,count+1);
-      return `<tr data-row-key="${escapeHTML(`${signature}:${count}`)}"><td>${time(r.time)}</td><td>${escapeHTML(r.method)}</td><td class="record-model">${escapeHTML(r.model || '—')}</td><td class="path">${escapeHTML(r.path)}</td><td><span class="status-pill ${r.status >= 400 ? 'bad' : ''}">${r.status}</span></td><td>${r.ms} ms</td></tr>`;
+      return `<tr data-row-key="${escapeHTML(`${signature}:${count}`)}"><td>${time(r.time)}</td><td>${escapeHTML(r.keyName || '—')}</td><td>${escapeHTML(r.method)}</td><td class="record-model"><span>${escapeHTML(r.model || '—')}</span>${r.actualModel && r.actualModel!==r.model?`<small>实际模型：${escapeHTML(r.actualModel)}</small>`:''}</td><td class="path">${escapeHTML(r.path)}</td><td><span class="status-pill ${r.status >= 400 ? 'bad' : ''}">${r.status}</span></td><td>${r.ms} ms</td></tr>`;
     }).join('');
     reconcileRows(requests.querySelector('tbody'),rows,row=>row.dataset.rowKey);
   }
@@ -153,20 +151,22 @@ function renderRecords() {
 function canonicalModel(id) { return id.trim().replace(/^models\//i,'').toLowerCase(); }
 function renderModelCatalog() {
   const known = snapshot.config.knownModels || [], disabled = new Set(snapshot.config.disabledModels || []);
-  const rows = new Map(known.map(id => [canonicalModel(id), { id, available:true }]));
+  const rows = new Map((snapshot.config.modelRules || []).map(rule=>[canonicalModel(rule.actual),{id:rule.actual,available:known.some(id=>canonicalModel(id)===canonicalModel(rule.actual))}]));
   for (const id of disabled) if (!rows.has(id)) rows.set(id, { id, available:false });
   const query = $('model-search').value.trim().toLowerCase();
   const visible = [...rows.values()].filter(row => row.id.toLowerCase().includes(query));
   const open = known.filter(id => !disabled.has(canonicalModel(id))).length;
   if(replaceContent($('catalog-summary'),snapshot.config.modelsUpdatedAt ? descriptionRows([['模型总数',known.length],['对外开放',open],['更新时间',new Date(snapshot.config.modelsUpdatedAt).toLocaleString('zh-CN',{hour12:false})]]) : '从本地代理获取可用模型')) reveal($('catalog-summary'));
-  const catalogHTML = visible.length ? visible.map(row => { const enabled = !disabled.has(canonicalModel(row.id)); return `<div class="catalog-row"><div><code>${escapeHTML(row.id)}</code><p>${row.available ? (enabled ? '可供外部访问' : '仅限本地访问') : '当前代理未提供，仍保持关闭'}</p></div><button type="button" class="model-switch" role="switch" aria-checked="${enabled}" aria-label="${escapeHTML(row.id)} 外部访问" data-modelid="${escapeHTML(row.id)}" ${pending ? 'disabled' : ''}><span></span></button></div>`; }).join('') : `<div class="empty">${query ? '没有匹配的模型' : '点击「从代理获取」加载模型'}</div>`;
+  const catalogHTML = visible.length ? visible.map(row => { const enabled = !disabled.has(canonicalModel(row.id)),rule=snapshot.config.modelRules.find(rule=>canonicalModel(rule.actual)===canonicalModel(row.id)); return `<div class="catalog-row"><div><code>${escapeHTML(row.id)}</code><p>${row.available ? (enabled ? '全局开放' : '全局已关闭') : '当前代理未提供'}</p><p class="alias-summary">对外 ID：${escapeHTML((snapshot.modelEntries || []).filter(entry=>entry.modelId===rule?.id).map(entry=>entry.name).join('、') || row.id)}</p></div><div class="catalog-actions">${rule?`<button class="secondary" data-edit-alias="${rule.id}">编辑对外 ID</button>`:''}<button type="button" class="model-switch" role="switch" aria-checked="${enabled}" aria-label="${escapeHTML(row.id)} 外部访问" data-modelid="${escapeHTML(row.id)}" ${pending ? 'disabled' : ''}><span></span></button></div></div>`; }).join('') : `<div class="empty">${query ? '没有匹配的模型' : '点击「从代理获取」加载模型'}</div>`;
   reconcileRows($('catalog-list'),catalogHTML,row=>row.querySelector('[data-modelid]')?.dataset.modelid || `empty:${row.textContent}`,(row,next)=>{
     const control=row.querySelector('[data-modelid]'), incoming=next.querySelector('[data-modelid]');
     if(!control) return;
     control.setAttribute('aria-checked',incoming.getAttribute('aria-checked')); control.disabled=incoming.disabled;
     const detail=row.querySelector('p'), text=next.querySelector('p').textContent;
     if(detail.textContent!==text) {detail.textContent=text;reveal(detail);}
+    const summary=row.querySelector('.alias-summary');if(summary)summary.textContent=next.querySelector('.alias-summary').textContent;
   });
+  $('catalog-list').querySelectorAll('[data-edit-alias]').forEach(button=>button.onclick=()=>openAliasEditor(button.dataset.editAlias));
   $('catalog-list').querySelectorAll('[data-modelid]').forEach(button => button.onclick = async () => {
     await task(button, async () => { render(await call('setModelAccess', { model:button.dataset.modelid, enabled:button.getAttribute('aria-checked') !== 'true' })); toast('模型访问设置已保存'); });
     renderModelCatalog();
@@ -175,5 +175,6 @@ function renderModelCatalog() {
 $('model-search').oninput = renderModelCatalog;
 $('refresh-models').onclick = async () => { await task($('refresh-models'), async () => { if (dirty) await saveForm(); render(await call('refreshModels')); toast('模型列表已更新'); }); renderModelCatalog(); };
 $('clear-records').onclick = () => task(null, () => call('clearLogs'));
+initManagement();
 if (window.bridge) { window.bridge.onUpdate(render); call('snapshot').then(render).catch(() => {}); }
 else { $('status-message').textContent = '请使用桌面应用启动'; }

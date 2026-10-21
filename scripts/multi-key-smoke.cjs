@@ -1,0 +1,47 @@
+const {_electron:electron}=require('playwright');
+const fs=require('node:fs'),path=require('node:path'),http=require('node:http'),assert=require('node:assert/strict');
+const {once}=require('node:events');
+(async()=>{
+  const fixture=http.createServer((req,res)=>{res.setHeader('content-type','application/json');res.end('{"data":[{"id":"gemini-test"},{"id":"claude-test"}]}');});
+  fixture.listen(0,'127.0.0.1');await once(fixture,'listening');
+  const profile=path.resolve(`.test-output/multi-key-${Date.now()}`);fs.mkdirSync(profile,{recursive:true});
+  const env={...process.env,SCROLLBRIDGE_TEST_DATA:profile};delete env.ELECTRON_RUN_AS_NODE;
+  const launch=()=>electron.launch({executablePath:process.argv[2] || require('electron'),args:process.argv[2]?[]:['.'],env});
+  let app,originalClipboard;
+  try{
+    app=await launch();await app.evaluate(({app,clipboard})=>{app.setLoginItemSettings=()=>{};let value='';clipboard.writeText=text=>{value=text;};clipboard.readText=()=>value;});let page=await app.firstWindow();const errors=[];page.on('pageerror',error=>errors.push(error.message));await page.waitForFunction(()=>!!snapshot);
+    await page.evaluate(upstream=>window.bridge.invoke('save',{config:{upstream}}),`http://127.0.0.1:${fixture.address().port}`);
+    await page.click('[data-page=catalog]');await page.click('#refresh-models');await page.waitForFunction(()=>!pending && snapshot.config.knownModels.length===2);
+    const defaultId=await page.evaluate(()=>snapshot.keys[0].id);
+    const ruleId=await page.evaluate(()=>snapshot.config.modelRules.find(row=>row.actual==='gemini-test').id);
+    await page.locator(`[data-edit-alias="${ruleId}"]`).click();await page.click('#add-alias');await page.locator('.alias-row input').fill('chat-fast');await page.click('#add-alias');await page.locator('.alias-row input').nth(1).fill('assistant');await page.check('#alias-keep');await page.locator('#alias-form button[type=submit]').click();await page.waitForFunction(()=>!pending && !document.querySelector('#alias-dialog').open);
+    assert.match(await page.locator('.catalog-row').filter({has:page.locator(`[data-edit-alias="${ruleId}"]`)}).locator('.alias-summary').innerText(),/gemini-test、chat-fast、assistant/);
+    await page.click('[data-page=keys]');await page.click('#new-key');await page.fill('#key-name','手机');
+    assert.equal(await page.locator('#key-all').isChecked(),true);
+    const assistantId=await page.evaluate(()=>snapshot.modelEntries.find(row=>row.name==='assistant').id);
+    await page.locator(`[data-permission="${assistantId}"]`).uncheck();assert.equal(await page.locator('#key-all').isChecked(),false);
+    await page.locator('#key-form button[type=submit]').click();await page.waitForFunction(()=>!pending && snapshot.keys.length===2);
+    const phoneId=await page.evaluate(()=>snapshot.keys.find(row=>row.name==='手机').id);
+    const phone=await page.evaluate(id=>snapshot.keys.find(row=>row.id===id),phoneId);assert.equal(phone.mode,'selected');assert.ok(!phone.allowed.includes(assistantId));
+    await page.waitForTimeout(260);await page.screenshot({path:path.resolve('.test-output/multi-key-light.png'),fullPage:true});
+    await page.locator(`[data-key-edit="${phoneId}"]`).click();await page.screenshot({path:path.resolve('.test-output/multi-key-permissions.png'),fullPage:true});await page.click('[data-close=key-dialog]');
+    await page.click('[data-page=access]');await page.selectOption('#access-key',phoneId);assert.equal(await page.locator('#example-model option[value=assistant]').count(),0);assert.equal(await page.locator('#example-model option[value=chat-fast]').count(),1);
+    await page.click('[data-page=connection]');await page.selectOption('#diagnostic-key',phoneId);await page.waitForFunction(()=>!pending);assert.equal(await page.locator('#diagnostic-model option[value=assistant]').count(),0);await page.selectOption('#diagnostic-model','chat-fast');await page.waitForFunction(()=>!pending);
+    await page.click('[data-page=catalog]');await page.locator(`[data-edit-alias="${ruleId}"]`).click();await page.locator('.alias-row input').first().fill('quick-chat');await page.uncheck('#alias-keep');await page.locator('#alias-form button[type=submit]').click();await page.waitForFunction(()=>!pending);
+    const retained=await page.evaluate(id=>snapshot.keys.find(row=>row.id===id).allowed.includes(snapshot.modelEntries.find(row=>row.name==='quick-chat').id),phoneId);assert.equal(retained,true);assert.equal(await page.evaluate(()=>snapshot.config.diagnosticModel),'quick-chat');
+    await page.click('[data-page=keys]');await page.locator(`[data-key-edit="${phoneId}"]`).click();await page.check('#key-all');await page.locator('#key-form button[type=submit]').click();await page.waitForFunction(()=>!pending);assert.equal(await page.evaluate(id=>snapshot.keys.find(row=>row.id===id).mode,phoneId),'all');
+    // Copy on demand: plaintext is absent from snapshots and the disk file.
+    originalClipboard=await app.evaluate(({clipboard})=>clipboard.readText());
+    await page.locator(`[data-key-copy="${phoneId}"]`).click();await page.waitForFunction(()=>!pending);
+    const secret=await app.evaluate(({clipboard})=>clipboard.readText());assert.match(secret,/^sb_/);assert.ok(!JSON.stringify(await page.evaluate(()=>snapshot)).includes(secret));assert.ok(!fs.readFileSync(path.join(profile,'settings.json'),'utf8').includes(secret));
+    await app.evaluate(({clipboard},text)=>clipboard.writeText(text),originalClipboard);originalClipboard=undefined;
+    await page.locator(`[data-key-reset="${phoneId}"]`).click();await page.click('#key-confirm');await page.waitForFunction(()=>!pending && !document.querySelector('#key-confirm-dialog').open);
+    await page.locator(`[data-key-toggle="${phoneId}"]`).click();await page.waitForFunction(()=>!pending && snapshot.keys.some(row=>row.name==='手机' && !row.enabled));
+    await page.click('#theme-toggle');await page.waitForFunction(()=>!pending);await page.waitForTimeout(260);await page.screenshot({path:path.resolve('.test-output/multi-key-dark.png'),fullPage:true});
+    assert.deepEqual(errors,[]);
+    await app.close();app=await launch();page=await app.firstWindow();await page.waitForFunction(()=>!!snapshot);
+    const restored=await page.evaluate(()=>snapshot);assert.equal(restored.keys.length,2);assert.equal(restored.keys.find(row=>row.id===phoneId).enabled,false);assert.ok(restored.modelEntries.some(row=>row.name==='quick-chat'));assert.ok(!restored.modelEntries.some(row=>row.name==='gemini-test'));
+    await page.click('[data-page=keys]');await page.locator(`[data-key-delete="${phoneId}"]`).click();await page.click('#key-confirm');await page.waitForFunction(()=>!pending && snapshot.keys.length===1);assert.equal(await page.evaluate(()=>snapshot.keys[0].id),defaultId);
+    console.log('Multi-key desktop UI passed: aliases, original ID switch, grants, selectors, encryption, reset/delete, dark mode and restart');
+  }finally{if(app){if(originalClipboard!==undefined)await app.evaluate(({clipboard},text)=>clipboard.writeText(text),originalClipboard).catch(()=>{});await app.close();}fixture.closeAllConnections();await new Promise(resolve=>fixture.close(resolve));}
+})().catch(error=>{console.error(error);process.exitCode=1;});

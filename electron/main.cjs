@@ -3,18 +3,24 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { parseCPA } = require('../lib/import-cpa.cjs');
 const { Store } = require('../lib/store.cjs');
-const { validateConfig, validateAccessKey, createAccessKey } = require('../lib/config.cjs');
+const { validateConfig, createAccessKey } = require('../lib/config.cjs');
 const { startGateway } = require('../lib/gateway.cjs');
 const { startTunnel } = require('../lib/tunnel.cjs');
 const { provision } = require('../lib/cloudflare.cjs');
 const {localCheck,publicCheck}=require('../lib/diagnostics.cjs');
 const {fetchModels,modelKey,modelName}=require('../lib/models.cjs');
+const {uid,newKey,syncModels,entries}=require('../lib/policy.cjs');
 app.setName('ScrollBridge');
 if (process.env.SCROLLBRIDGE_TEST_DATA) { fs.mkdirSync(process.env.SCROLLBRIDGE_TEST_DATA, {recursive:true}); app.setPath('userData', process.env.SCROLLBRIDGE_TEST_DATA); }
 if (!app.requestSingleInstanceLock()) app.quit();
 let window, tray, store, config, secrets, gateway, tunnel, closing = false, busy = false;
 let status = 'stopped', message = '', records = [], logs = [], localDiagnostic = null, publicDiagnostic = null;
-const view = () => ({ config, hasUpstreamKey: !!secrets.upstreamKey, hasTunnelToken: !!secrets.tunnelToken, gatewayRunning: !!gateway, status, message, records, logs, localDiagnostic, publicDiagnostic, version: app.getVersion() });
+const view = () => ({ config, keys:config.accessKeys.map(key=>({...key,masked:`${secrets.keyValues[key.id].slice(0,6)}…${secrets.keyValues[key.id].slice(-4)}`})), modelEntries:entries(config),hasUpstreamKey: !!secrets.upstreamKey, hasTunnelToken: !!secrets.tunnelToken, gatewayRunning: !!gateway, status, message, records, logs, localDiagnostic, publicDiagnostic, version: app.getVersion() });
+function commit(next,nextSecrets=secrets) {
+  next=validateConfig(next);store.save(next,nextSecrets);config=next;secrets=nextSecrets;
+  publicDiagnostic=null;gateway?.refreshPolicy();publish();return view();
+}
+function findKey(id) {const key=config.accessKeys.find(row=>row.id===id);if(!key)throw new Error('密钥不存在');return key;}
 function publish() { if (window && !window.isDestroyed()) window.webContents.send('update', view()); }
 function state(next, detail = '') { status = next; message = detail; publish(); }
 function log(line) { logs.unshift({ time: new Date().toISOString(), text: line }); logs = logs.slice(0, 100); publish(); }
@@ -29,33 +35,61 @@ async function probe(url, key, isPublic = false) {
   return isPublic ? { ok: true, message: '域名 HTTPS 和网关鉴权正常' } : { ok: true, message: `本地服务正常，提供 ${data.data.length} 个模型`, models: data.data.map(m => m.id).slice(0, 80) };
 }
 function save(payload = {}) {
+  if(['accessKeys','modelRules'].some(field=>payload.config?.[field]!==undefined) || payload.accessKey!==undefined)throw new Error('请通过密钥或模型页面编辑');
   const next = validateConfig({ ...config, ...payload.config });
   if ((gateway || tunnel) && (payload.clearUpstreamKey || ['upstream', 'port', 'hostname', 'protocol'].some(k => next[k] !== config[k]) || ['upstreamKey', 'tunnelToken', 'accessKey'].some(k => payload[k]))) throw new Error('请先停止连接再保存连接配置');
   const nextSecrets = { ...secrets };
   if (payload.clearUpstreamKey) nextSecrets.upstreamKey = '';
-  for (const key of ['upstreamKey', 'tunnelToken', 'accessKey']) if (payload[key] !== undefined && payload[key] !== '') {
+  for (const key of ['upstreamKey', 'tunnelToken']) if (payload[key] !== undefined && payload[key] !== '') {
     if (typeof payload[key] !== 'string' || payload[key].length > 8192 || /[\r\n]/.test(payload[key])) throw new Error('密钥格式不正确');
     nextSecrets[key] = payload[key].trim();
   }
-  validateAccessKey(nextSecrets.accessKey);
   store.save(next, nextSecrets); config = next; secrets = nextSecrets;
-  if (payload.config?.diagnosticModel !== undefined) publicDiagnostic = null;
+  if (payload.config?.diagnosticModel !== undefined || payload.config?.diagnosticKeyId !== undefined) publicDiagnostic = null;
   if (payload.config?.hostname !== undefined || payload.tunnelToken || payload.clearUpstreamKey || payload.upstreamKey || payload.config?.upstream !== undefined) {localDiagnostic=null;publicDiagnostic=null;}
   app.setLoginItemSettings({ openAtLogin: !!config.launchAtLogin, path: process.env.PORTABLE_EXECUTABLE_FILE || app.getPath('exe') });
-  publish(); return view();
+  gateway?.refreshPolicy();publish(); return view();
 }
 const actions = {
   snapshot: () => view(),
   save,
-  copyKey: () => { clipboard.writeText(secrets.accessKey); return true; },
-  rotateKey: () => { if (gateway) throw new Error('请先停止连接'); secrets.accessKey = createAccessKey(); store.save(config, secrets); return true; },
+  copyKey: payload => { const key=findKey(payload?.id);clipboard.writeText(secrets.keyValues[key.id]); return true; },
+  rotateKey: payload => {const key=findKey(payload?.id);return commit(config,{...secrets,keyValues:{...secrets.keyValues,[key.id]:createAccessKey()}});},
+  saveKey: payload => {
+    if(!payload || typeof payload.name!=='string')throw new Error('请输入密钥名称');
+    const existing=payload.id?findKey(payload.id):null,key=existing?{...existing}:newKey();
+    key.name=payload.name.trim();
+    if(payload.enabled!==undefined)key.enabled=payload.enabled;
+    if(payload.mode!==undefined)key.mode=payload.mode;
+    if(payload.allowed!==undefined)key.allowed=payload.allowed;
+    const accessKeys=existing?config.accessKeys.map(row=>row.id===key.id?key:row):[...config.accessKeys,key];
+    const nextSecrets=existing?secrets:{...secrets,keyValues:{...secrets.keyValues,[key.id]:createAccessKey()}};
+    return commit({...config,accessKeys,diagnosticKeyId:config.diagnosticKeyId || key.id},nextSecrets);
+  },
+  deleteKey: payload => {
+    const key=findKey(payload?.id),keyValues={...secrets.keyValues};delete keyValues[key.id];
+    return commit({...config,accessKeys:config.accessKeys.filter(row=>row.id!==key.id),diagnosticKeyId:config.diagnosticKeyId===key.id?'':config.diagnosticKeyId},{...secrets,keyValues});
+  },
+  saveAliases: payload => {
+    const rule=config.modelRules.find(row=>row.id===payload?.id);
+    if(!rule || !Array.isArray(payload.aliases) || typeof payload.keepOriginal!=='boolean')throw new Error('模型别名设置无效');
+    const aliases=payload.aliases.map(row=>{
+      if(typeof row.name!=='string' || row.id && !rule.aliases.some(alias=>alias.id===row.id))throw new Error('别名条目无效');
+      return{id:row.id || uid(),name:row.name.trim()};
+    });
+    const modelRules=config.modelRules.map(row=>row.id===rule.id?{...row,aliases,keepOriginal:payload.keepOriginal}:row);
+    const valid=new Set(modelRules.flatMap(row=>[row.originalId,...row.aliases.map(alias=>alias.id)]));
+    const next={...config,modelRules,accessKeys:config.accessKeys.map(key=>({...key,allowed:key.allowed.filter(id=>valid.has(id))}))};
+    const selected=entries(config).find(row=>row.name===config.diagnosticModel),renamed=entries(next).find(row=>row.id===selected?.id);
+    if(renamed)next.diagnosticModel=renamed.name;
+    return commit(next);
+  },
   copy: text => { if (typeof text !== 'string' || text.length > 50000) throw new Error('复制内容无效'); clipboard.writeText(text); return true; },
   testLocal: async () => {localDiagnostic=await localCheck(config,secrets);publish();return localDiagnostic;},
-  testPublic: async () => {publicDiagnostic=await publicCheck(config,secrets,{model:config.diagnosticModel});publish();return publicDiagnostic;},
+  testPublic: async () => {const key=findKey(config.diagnosticKeyId);if(!key.enabled)throw new Error('所选检测密钥已停用');publicDiagnostic=await publicCheck(config,secrets,{model:config.diagnosticModel,keyId:key.id});publish();return publicDiagnostic;},
   refreshModels: async () => {
     const knownModels = await fetchModels(config, secrets);
-    const next = validateConfig({ ...config, knownModels, modelsUpdatedAt: new Date().toISOString() });
-    store.save(next, secrets); config = next; publish(); return view();
+    return commit({...syncModels(config,knownModels),modelsUpdatedAt:new Date().toISOString()});
   },
   setModelAccess: payload => {
     if (!payload || !modelName(payload.model) || typeof payload.enabled !== 'boolean') throw new Error('模型设置无效');
@@ -64,7 +98,7 @@ const actions = {
     const disabled = new Set(config.disabledModels);
     if (payload.enabled) disabled.delete(key); else disabled.add(key);
     const next = validateConfig({ ...config, disabledModels: [...disabled] });
-    store.save(next, secrets); config = next; publicDiagnostic = null; publish(); return view();
+    return commit(next);
   },
   start: async () => {
     if (gateway || tunnel) throw new Error('连接已启动');
@@ -72,7 +106,7 @@ const actions = {
     state('starting');
     try {
       await probe(`${config.upstream}/v1/models`, secrets.upstreamKey);
-      gateway = await startGateway(config, secrets, record => { records.unshift(record); records = records.slice(0, 200); publish(); }, { getDisabledModels: () => config.disabledModels, getImagesEnabled: () => config.imagesEnabled, getGeminiImageCompatibility: () => config.geminiImageCompatibility });
+      gateway = await startGateway(config, secrets, record => { records.unshift(record); records = records.slice(0, 200); publish(); }, { getConfig:()=>config,getSecrets:()=>secrets,getImagesEnabled: () => config.imagesEnabled, getGeminiImageCompatibility: () => config.geminiImageCompatibility });
       const executable = app.isPackaged ? path.join(process.resourcesPath, 'vendor', 'cloudflared.exe') : path.join(app.getAppPath(), 'vendor', 'cloudflared.exe');
       tunnel = startTunnel({ executable, token: secrets.tunnelToken, protocol: config.protocol, runtimeDir: path.join(app.getPath('userData'), 'runtime'), onState: state, onLog: log });
       log('网关已启动，等待隧道连接');
@@ -118,7 +152,7 @@ app.whenReady().then(async () => {
   try { fs.unlinkSync(path.join(app.getPath('userData'), 'runtime', 'tunnel-token')); } catch {}
   ipcMain.handle('bridge', async (event, action, payload) => {
     if (event.sender !== window?.webContents || event.senderFrame !== window.webContents.mainFrame || !Object.hasOwn(actions, action)) throw new Error('请求无效');
-    const mutation = ['save', 'start', 'stop', 'import', 'bind', 'rotateKey', 'refreshModels', 'setModelAccess'].includes(action);
+    const mutation = ['save', 'start', 'stop', 'import', 'bind', 'rotateKey', 'refreshModels', 'setModelAccess','saveKey','deleteKey','saveAliases'].includes(action);
     if (mutation && busy) throw new Error('请等待当前操作完成');
     if (mutation) busy = true;
     try { return await actions[action](payload); } catch (e) { throw new Error(e.message); } finally { if (mutation) busy = false; }

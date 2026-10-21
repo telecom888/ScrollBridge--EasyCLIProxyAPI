@@ -18,8 +18,7 @@ const assert = require('node:assert/strict');
     await page.evaluate(state => render(state), connected);
     for (const id of ['upstream', 'port', 'hostname', 'upstreamKey', 'tunnelToken', 'import']) {
       assert.ok(await page.locator(`#${id}`).isDisabled());
-      const box = await page.locator(`#${id}`).boundingBox();
-      await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+      await page.locator(`[data-locked-for="${id}"]`).click();
       assert.equal(await page.locator('#toast').innerText(), '请先停止连接再修改配置');
     }
     await page.click('[data-page="settings"]');

@@ -1,8 +1,10 @@
 const fs=require('node:fs');const path=require('node:path');const {parseCPA}=require('../lib/import-cpa.cjs');const {startGateway}=require('../lib/gateway.cjs');const {createAccessKey}=require('../lib/config.cjs');
 (async()=>{
   const imported=parseCPA(fs.readFileSync('../代理工具/EasyCLIProxyAPI-v0.3.44-Windows-amd64/cpa-core/config.yaml','utf8'));
-  const key=createAccessKey();const config={upstream:imported.upstream,port:18449};const records=[];
-  const g=await startGateway(config,{accessKey:key,upstreamKey:imported.upstreamKey},r=>records.push(r));
+  const {validateConfig}=require('../lib/config.cjs');const {newKey,syncModels}=require('../lib/policy.cjs');const {fetchModels}=require('../lib/models.cjs');
+  const key=createAccessKey(),identity=newKey();const secrets={keyValues:{[identity.id]:key},upstreamKey:imported.upstreamKey,tunnelToken:''};
+  const config=syncModels(validateConfig({upstream:imported.upstream,port:18449,accessKeys:[identity]}),await fetchModels(imported,secrets));const records=[];
+  const g=await startGateway(config,secrets,r=>records.push(r));
   try{
     const base='http://127.0.0.1:18449';const modelResponse=await fetch(base+'/v1/models',{headers:{authorization:`Bearer ${key}`}});const models=(await modelResponse.json()).data;
     const model=models.find(m=>/flash/i.test(m.id)&&!/(image|preview|thinking)/i.test(m.id))||models.find(m=>!/(image|thinking)/i.test(m.id));if(!model)throw new Error('No text model available');

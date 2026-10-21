@@ -55,3 +55,30 @@ th,.status-pill,.catalog-row p{font-size:13px}
 .model-switch>span{transition:transform 200ms cubic-bezier(.2,.7,.2,1);left:3px}
 .model-switch[aria-checked=true]>span{left:3px;transform:translateX(15px)}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important;scroll-behavior:auto!important}}
+.management-dialog{width:640px;max-width:calc(100vw - 48px);max-height:calc(100vh - 48px);overflow:auto}
+.management-dialog .dialog-actions{margin-top:24px;border-top:1px solid var(--line);padding-top:20px}
+.management-dialog p{margin:4px 0 0}
+.management-dialog .setting-row{gap:24px;padding:18px 0;margin:0}
+.permission-search{margin:18px 0 12px}
+.permissions{max-height:300px;overflow:auto;padding-right:8px}
+.permission-group{padding:12px 0;border-top:1px solid var(--line)}
+.permission-group>strong{font-size:13px;color:var(--muted);overflow-wrap:anywhere}
+.permission-choice{display:flex;flex-direction:row;align-items:flex-start;gap:10px;padding:9px 0;cursor:pointer}
+.permission-choice input{margin:4px 0;accent-color:var(--accent)}
+.permission-choice span{min-width:0;overflow-wrap:anywhere}
+.permission-choice small{display:block;color:var(--muted);font-size:13px}
+.managed-key{display:flex;justify-content:space-between;align-items:center;gap:18px;border-top:1px solid var(--line);padding:22px 0}
+#key-list{margin-top:18px}
+.key-description{min-width:0;overflow-wrap:anywhere}
+.key-description strong,.key-description code{display:block}
+.key-description code{font-size:13px;color:var(--muted);margin:7px 0}
+.key-actions,.catalog-actions{display:flex;align-items:center;gap:12px;flex-shrink:0;flex-wrap:wrap}
+.key-actions{max-width:340px;justify-content:flex-end}
+.danger-text{color:#ad604d}
+.alias-row{display:flex;gap:12px;margin:14px 0}
+.alias-row input{flex:1}
+.access-key-picker{margin:20px 0 8px}
+.diagnostic-key-picker{margin-bottom:12px}
+.record-model small{display:block;font-size:13px;color:var(--muted);margin-top:4px}
+.model-label select{max-width:440px}
+.alias-summary{overflow-wrap:anywhere}

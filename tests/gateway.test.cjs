@@ -4,12 +4,15 @@ const { WebSocketServer, WebSocket } = require('ws');
 const { once } = require('node:events');
 const { startGateway, MAX_BODY } = require('../lib/gateway.cjs');
 const { validateConfig, createAccessKey } = require('../lib/config.cjs');
+const {newKey,syncModels}=require('../lib/policy.cjs');
 const KEY = createAccessKey(); const UPSTREAM_KEY = 'local-private-key';
 async function fixture(t, handler, options = {}) {
   const upstream = http.createServer(handler); upstream.listen(0, '127.0.0.1'); await once(upstream, 'listening');
   const reservation = http.createServer(); reservation.listen(0, '127.0.0.1'); await once(reservation, 'listening'); const port = reservation.address().port; await new Promise(r => reservation.close(r));
   const records = [];
-  const g = await startGateway({upstream:`http://127.0.0.1:${upstream.address().port}`,port}, {accessKey:KEY,upstreamKey:UPSTREAM_KEY}, r => records.push(r), options);
+  const key=newKey();
+  const config=syncModels(validateConfig({upstream:`http://127.0.0.1:${upstream.address().port}`,port,accessKeys:[key]}),['test','image-test','blocked','open','gemini-3.1-flash-image','gemini-quota-image','gpt-image-2','chat-test','gemini-test']);
+  const g = await startGateway(config, {keyValues:{[key.id]:KEY},upstreamKey:UPSTREAM_KEY,tunnelToken:''}, r => records.push(r), options);
   t.after(async () => { await g.close(); upstream.closeAllConnections(); await new Promise(r => upstream.close(r)); });
   return {upstream,base:`http://127.0.0.1:${port}`,records};
 }
@@ -122,7 +125,7 @@ test('configuration only allows loopback origin and non-recursive gateway', () =
   assert.equal(validateConfig({hostname:'https://API.Example.com/'}).hostname,'api.example.com');
 });
 test('all three credentials are exchanged for upstream bearer, query secrets stripped', async t => {
-  let seen; const {base,records} = await fixture(t, (req,res) => { seen = {url:req.url,headers:req.headers}; res.setHeader('content-type','application/json'); res.end('{"ok":true}'); });
+  let seen; const {base,records} = await fixture(t, (req,res) => { seen = {url:req.url,headers:req.headers}; res.setHeader('content-type','application/json'); res.end(req.url==='/v1/models'?'{"data":[{"id":"test"}]}':'{"ok":true}'); });
   for (const [path,headers,method] of [
     ['/v1/models',auth,'GET'], ['/v1/chat/completions',auth,'POST'], ['/v1/responses',auth,'POST'],
     ['/v1/messages',{'x-api-key':KEY,'anthropic-version':'2023-06-01'},'POST'],
@@ -152,7 +155,7 @@ test('SSE reaches client before upstream completes without response buffering', 
 test('forwards compressed responses byte-for-byte with matching headers', async t => {
   const bytes = zlib.gzipSync('{"data":[1,2,3]}');
   const {base} = await fixture(t, (_,res) => {res.writeHead(200,{'content-type':'application/json','content-encoding':'gzip','content-length':bytes.length,'set-cookie':'private=yes'});res.end(bytes);});
-  const got = await new Promise((resolve,reject) => {http.get(base+'/v1/models',{headers:auth},res => {const chunks=[];res.on('data',c=>chunks.push(c));res.on('end',()=>resolve({res,bytes:Buffer.concat(chunks)}));}).on('error',reject);});
+  const got = await new Promise((resolve,reject) => {const req=http.request(base+'/v1/messages',{method:'POST',headers:auth},res => {const chunks=[];res.on('data',c=>chunks.push(c));res.on('end',()=>resolve({res,bytes:Buffer.concat(chunks)}));});req.on('error',reject);req.end('{"model":"test"}');});
   assert.deepEqual(got.bytes,bytes);assert.equal(got.res.headers['content-encoding'],'gzip');assert.equal(got.res.headers['set-cookie'],undefined);
 });
 test('upstream failure returns 502 without disclosing local credentials', async t => {
@@ -206,6 +209,5 @@ test('websocket blocks disabled models and inherited models after a live policy 
   ws.send('{"type":"response.create","model":"blocked"}');assert.equal(JSON.parse((await once(ws,'message'))[0]).status,403);assert.equal(forwards,0);
   ws.send('{"type":"response.create","model":"open","input":"hello"}');await once(ws,'message');assert.equal(forwards,1);
   ws.send('{"type":"response.create","previous_response_id":"opaque-id","input":"continue"}');assert.equal(JSON.parse((await once(ws,'message'))[0]).model,'open');assert.equal(forwards,2);
-  disabled=['open'];ws.send('{"type":"response.create","input":"continue"}');assert.equal(JSON.parse((await once(ws,'message'))[0]).status,403);assert.equal(forwards,2);assert.equal(records.at(-1).model,'open');
-  ws.close();await once(ws,'close');
+  disabled=['open'];const closed=once(ws,'close');ws.send('{"type":"response.create","input":"continue"}');await closed;assert.equal(forwards,2);assert.equal(records.at(-1).model,'open');
 });

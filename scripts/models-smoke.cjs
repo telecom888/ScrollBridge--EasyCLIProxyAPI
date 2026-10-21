@@ -23,7 +23,7 @@ const assert = require('node:assert/strict');
     await page.waitForFunction(()=>!pending&&snapshot.config.geminiImageCompatibility);
     await page.screenshot({ path: path.resolve('.test-output/images-settings-light.png'), fullPage: true });
     await page.evaluate(upstream => window.bridge.invoke('save', { config: { upstream } }), `http://127.0.0.1:${fixture.address().port}`);
-    assert.deepEqual(await page.locator('.nav').evaluateAll(nodes => nodes.map(n => n.textContent.trim())), ['连接', '接入', '模型', '记录', '设置']);
+    assert.deepEqual(await page.locator('.nav').evaluateAll(nodes => nodes.map(n => n.textContent.trim())), ['连接', '接入', '密钥', '模型', '记录', '设置']);
     await page.click('[data-page=catalog]'); await page.click('#refresh-models');
     await page.waitForFunction(() => !pending && snapshot.config.knownModels.length === 3);
     await page.click('[data-page=connection]');

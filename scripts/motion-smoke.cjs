@@ -8,8 +8,12 @@ const path = require('node:path');
   try {
     const page = await app.firstWindow();
     await page.waitForFunction(()=>!!snapshot);
-    await page.evaluate(() => {
-      window.fixture = { version:'test',status:'stopped', config:{theme:'light',upstream:'http://127.0.0.1:8317',port:18443,hostname:'',protocol:'auto',knownModels:['gemini-test','claude-test'],disabledModels:[],modelsUpdatedAt:new Date().toISOString()},records:[],logs:[] };
+    await page.evaluate(async () => {
+      window.fixture=await window.bridge.invoke('snapshot');
+    });
+    await page.evaluate(async () => {
+      const s=window.fixture;
+      window.fixture = {...s,config:{...s.config,knownModels:['gemini-test','claude-test'],modelRules:[{id:'r1',actual:'gemini-test',originalId:'o1',keepOriginal:false,aliases:[]},{id:'r2',actual:'claude-test',originalId:'o2',keepOriginal:false,aliases:[]}],disabledModels:[],modelsUpdatedAt:new Date().toISOString()},modelEntries:[{id:'o1',name:'gemini-test',actual:'gemini-test',modelId:'r1',available:true,globalEnabled:true},{id:'o2',name:'claude-test',actual:'claude-test',modelId:'r2',available:true,globalEnabled:true}],records:[],logs:[]};
       render(window.fixture);
     });
     await page.click('[data-page=catalog]');

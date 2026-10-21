@@ -1,5 +1,17 @@
 const {test}=require('node:test');const assert=require('node:assert/strict');const {localCheck,publicCheck}=require('../lib/diagnostics.cjs');
-const cfg={hostname:'api.example.com'};const secrets={accessKey:'test-key',upstreamKey:'local-key'};
+const {newKey}=require('../lib/policy.cjs');const key=newKey();
+const cfg={hostname:'api.example.com',accessKeys:[key],diagnosticKeyId:key.id};const secrets={keyValues:{[key.id]:'test-key'},upstreamKey:'local-key'};
+test('automatic public test uses actual model names when aliases hide image capability',async()=>{
+  const {syncModels}=require('../lib/policy.cjs');const {validateConfig}=require('../lib/config.cjs');
+  const config=syncModels(validateConfig(cfg),['gemini-flash-image','text-real']);
+  config.modelRules[0].aliases=[{id:'draw',name:'flash-fast'}];config.modelRules[1].aliases=[{id:'chat',name:'chat'}];
+  const calls=[];await publicCheck(config,secrets,{fetcher:async(url,options)=>{
+    if(url.endsWith('/healthz'))return response({service:'scrollbridge'});
+    if(url.endsWith('/v1/models'))return response({data:[{id:'flash-fast'},{id:'chat'}]});
+    calls.push(JSON.parse(options.body));return new Response('data: {"choices":[{"delta":{"content":"OK"}}]}\n\ndata: [DONE]\n\n',{headers:{'content-type':'text/event-stream'}});
+  }});
+  assert.equal(calls[0].model,'chat');
+});
 const scanner=async()=>({available:true,coreRunning:true,guiRunning:true,listening:true,ownedByCore:true,pid:123});
 const response=(data,status=200,headers={'content-type':'application/json'})=>new Response(typeof data==='string'?data:JSON.stringify(data),{status,headers});
 test('local connectivity requires running core, owned port and model API',async()=>{const good=await localCheck(cfg,secrets,{scanner,fetcher:async()=>response({data:[{id:'model'}]})});assert.equal(good.ok,true);assert.equal(good.process.pid,123);assert.equal(good.steps.length,3);const bad=await localCheck(cfg,secrets,{scanner:async()=>({...await scanner(),ownedByCore:false}),fetcher:async()=>response({data:[]})});assert.equal(bad.ok,false);assert.match(bad.message,/其他进程/);});
