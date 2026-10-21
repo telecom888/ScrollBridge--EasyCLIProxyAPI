@@ -1,5 +1,6 @@
 const $ = id => document.getElementById(id);
 const icons = {
+  search:'<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/>',close:'<path d="m6 6 12 12M6 18 18 6"/>',more:'<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>',refresh:'<path d="M20 8a8 8 0 0 0-14-3L3 8m0-5v5h5M4 16a8 8 0 0 0 14 3l3-3m0 5v-5h-5"/>',trash:'<path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7m4-7v7"/>',plus:'<path d="M12 5v14M5 12h14"/>',
   plug:'<path d="M8 3v5m8-5v5M6 8h12v4a6 6 0 0 1-12 0V8Zm6 10v4"/>',
   code:'<path d="m8 7-5 5 5 5m8-10 5 5-5 5m-3-13-2 20"/>',
   file:'<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Zm0 0v6h6M8 13h8m-8 4h6"/>',
@@ -32,10 +33,11 @@ for (const id of lockedControls) {
   if (label) label.addEventListener('click', event => { if (!hint.hidden) { event.preventDefault(); toast('请先停止连接再修改配置'); } });
 }
 async function call(action, payload) { try { return await window.bridge.invoke(action, payload); } catch (e) { const message = e.message.replace(/^Error invoking remote method '[^']+': Error: /, ''); toast(message, true); throw e; } }
-async function task(button, fn) { if (pending) return; pending = true; if (button) button.disabled = true; try { await fn(); } catch {} finally { pending = false; if (button) button.disabled = false; if (snapshot) renderModelCatalog(); } }
+async function task(button, fn) { if (pending) return; pending = true; if (button) button.disabled = true; try { await fn(); } catch {} finally { pending = false; if (button) button.disabled = false; if (snapshot) {renderModelCatalog();renderManagement();} } }
 function page(name) {
   if (name === currentPage) return;
   currentPage = name;
+  document.body.dataset.page=name;$('new-key').hidden=name!=='keys';$('key-page-description').hidden=name!=='keys';$('key-menu').hidePopover();
   document.querySelectorAll('.page').forEach(el => el.hidden = el.id !== `page-${name}`);
   const selected = document.querySelector(`.nav[data-page="${name}"]`);
   moveSelection(selected.parentElement, selected);
