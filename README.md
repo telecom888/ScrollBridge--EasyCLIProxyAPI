@@ -145,4 +145,10 @@ UI 先用内置 ImageGen 生成参考，再实现原生代码界面。参考图�
 
 ## Go 网关 beta
 
-独立分支 `beta/go-gateway` 提供 Go 网关实验版本，包含共享缓冲预算、流式取消、供给冷却、可选 Redis 配置与额度、可调整输入/输出/缓存价格。它尚未替代桌面版网关。运行方式与接口差异见 [beta 说明](beta/go-gateway/README.md)，同条件进程测试见 [对比报告](beta/go-gateway/REPORT.md)。
+分支 `beta/go-gateway` 同时交付两个桌面版本：`ScrollBridge-0.3.0-win-x64.exe` 保留 Node 网关，`ScrollBridge-0.3.0-beta-win-x64.exe` 使用 Go 网关。两者复用桌面布局、Windows 加密配置及隧道管理，界面不标注技术栈，后者仅在版本号显示 beta。新增费用设置和记录位于 beta 版。
+
+Go 已移植 WebSocket、multipart 图像编辑、Gemini 图像生成兼容、gzip/deflate/Brotli、单模型详情及过滤后的上游模型目录。两版共用原有配置目录和单实例锁，请退出一版再打开另一版。现有配置在加载时补齐可选字段，不清空密钥或域名。
+
+构建：`node scripts/build-desktop.cjs both`；单独构建可用 `npm run dist:node` / `npm run dist:go`。开发启动默认 Node；先执行 `node scripts/build-desktop.cjs core`，再设置 `SCROLLBRIDGE_GATEWAY_ENGINE=go` 可在开发环境测试 Go 桌面版。
+
+本次移植及验证见 [桌面双版本说明](beta/go-gateway/DESKTOP-0.3.0.md)。独立网关和可选 Redis 操作见 [核心说明](beta/go-gateway/README.md)；[原始性能对比](beta/go-gateway/REPORT.md) 是 0.1.0 核心版本的历史测量，不能作为本次桌面版的新压测数据。

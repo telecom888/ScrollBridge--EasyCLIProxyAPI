@@ -17,14 +17,15 @@ import (
 )
 
 type Config struct {
-	Version   int64      `json:"version"`
-	Listen    string     `json:"listen"`
-	Limits    Limits     `json:"limits"`
-	Images    bool       `json:"images"`
-	Billing   Billing    `json:"billing"`
-	Keys      []Key      `json:"keys"`
-	Models    []Model    `json:"models"`
-	Upstreams []Upstream `json:"upstreams"`
+	Version      int64      `json:"version"`
+	Listen       string     `json:"listen"`
+	Limits       Limits     `json:"limits"`
+	Images       bool       `json:"images"`
+	GeminiImages bool       `json:"geminiImageCompatibility"`
+	Billing      Billing    `json:"billing"`
+	Keys         []Key      `json:"keys"`
+	Models       []Model    `json:"models"`
+	Upstreams    []Upstream `json:"upstreams"`
 }
 type Limits struct {
 	Concurrent     int   `json:"concurrent"`
@@ -53,27 +54,33 @@ type Model struct {
 	ExposureIDs  map[string]string `json:"exposureIds,omitempty"`
 	KeepOriginal bool              `json:"keepOriginal"`
 	Enabled      bool              `json:"enabled"`
+	Available    *bool             `json:"available,omitempty"`
 	Rates        *Rates            `json:"rates,omitempty"`
 }
 type Upstream struct {
 	ID     string `json:"id"`
 	URL    string `json:"url"`
 	KeyEnv string `json:"keyEnv"`
+	Auth   string `json:"auth,omitempty"`
 }
 type entry struct {
 	Name, Actual, ID string
 	Enabled          bool
+	Available        bool
 	Billing          Billing
 }
 type snapshot struct {
-	cfg    Config
-	keys   map[[32]byte]*Key
-	byID   map[string]*Key
-	names  map[string]entry
-	grants map[string]map[string]bool
+	cfg             Config
+	keys            map[[32]byte]*Key
+	byID            map[string]*Key
+	names           map[string]entry
+	grants          map[string]map[string]bool
+	ordered         []entry
+	accessSignature string
 }
 
 var validID = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$`)
+var validActual = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._:/-]{0,511}$`)
 
 func normalized(s string) string {
 	return strings.ToLower(strings.TrimPrefix(strings.TrimSpace(s), "models/"))
@@ -133,7 +140,7 @@ func compile(c Config) (*snapshot, error) {
 	if l.Concurrent < 1 || l.Concurrent > 4096 || l.BodyBytes < 1 || l.BodyBytes > 32<<20 || l.MemoryBytes < l.BodyBytes || l.MemoryBytes > 2<<30 || l.EventBytes < 128 || l.EventBytes > 4<<20 || l.ResponseBytes < 128 || l.ResponseBytes > 64<<20 || l.OutputBytes < 128 || l.OutputBytes > 1<<30 || l.RequestSeconds < 1 || l.RequestSeconds > 1800 || l.WriteSeconds < 1 || l.WriteSeconds > 120 {
 		return nil, errors.New("invalid resource limits")
 	}
-	if len(c.Keys) == 0 || len(c.Keys) > 1000 || len(c.Models) == 0 || len(c.Models) > 10000 || len(c.Upstreams) == 0 || len(c.Upstreams) > 64 {
+	if len(c.Keys) > 1000 || len(c.Models) > 10000 || len(c.Upstreams) == 0 || len(c.Upstreams) > 64 {
 		return nil, errors.New("invalid configuration size")
 	}
 	s := &snapshot{cfg: c, keys: map[[32]byte]*Key{}, byID: map[string]*Key{}, names: map[string]entry{}, grants: map[string]map[string]bool{}}
@@ -151,7 +158,7 @@ func compile(c Config) (*snapshot, error) {
 				return nil, err
 			}
 		}
-		if !validID.MatchString(m.ID) || ids[m.ID] || !validID.MatchString(m.Actual) || actuals[normalized(m.Actual)] || len(m.Aliases) > 1000 {
+		if !validID.MatchString(m.ID) || ids[m.ID] || !validActual.MatchString(m.Actual) || actuals[normalized(m.Actual)] || len(m.Aliases) > 1000 {
 			return nil, errors.New("invalid or duplicate model")
 		}
 		ids[m.ID] = true
@@ -183,11 +190,11 @@ func compile(c Config) (*snapshot, error) {
 		}
 		names := append([]string{}, m.Aliases...)
 		if m.KeepOriginal || len(names) == 0 {
-			names = append(names, m.Actual)
+			names = append([]string{m.Actual}, names...)
 		}
 		for _, name := range names {
 			n := normalized(name)
-			if !validID.MatchString(name) || s.names[n].Name != "" || (actuals[n] && n != normalized(m.Actual)) {
+			if (!validID.MatchString(name) && name != m.Actual) || s.names[n].Name != "" || (actuals[n] && n != normalized(m.Actual)) {
 				return nil, errors.New("invalid or colliding exposure")
 			}
 			billing := s.cfg.Billing
@@ -198,7 +205,9 @@ func compile(c Config) (*snapshot, error) {
 			if id == "" {
 				id = n
 			}
-			s.names[n] = entry{Name: name, Actual: m.Actual, ID: id, Enabled: m.Enabled, Billing: billing}
+			available := m.Available == nil || *m.Available
+			s.names[n] = entry{Name: name, Actual: m.Actual, ID: id, Enabled: m.Enabled, Available: available, Billing: billing}
+			s.ordered = append(s.ordered, s.names[n])
 		}
 	}
 	for i := range s.cfg.Keys {
@@ -225,6 +234,9 @@ func compile(c Config) (*snapshot, error) {
 	}
 	upstreams := map[string]bool{}
 	for _, u := range c.Upstreams {
+		if u.Auth != "" && u.Auth != "auto" && u.Auth != "bearer" {
+			return nil, errors.New("invalid upstream authentication mode")
+		}
 		p, e := url.Parse(u.URL)
 		if e != nil || !validID.MatchString(u.ID) || upstreams[u.ID] || p.User != nil || p.RawQuery != "" || p.Fragment != "" || (p.Path != "" && p.Path != "/") || p.Hostname() == "" || (p.Scheme != "http" && p.Scheme != "https") {
 			return nil, errors.New("invalid upstream")
@@ -242,6 +254,15 @@ func compile(c Config) (*snapshot, error) {
 		}
 		upstreams[u.ID] = true
 	}
+	access := s.cfg
+	access.Version = 0
+	access.Billing = Billing{}
+	access.Models = append([]Model(nil), s.cfg.Models...)
+	for i := range access.Models {
+		access.Models[i].Rates = nil
+	}
+	encoded, _ := json.Marshal(access)
+	s.accessSignature = string(encoded)
 	return s, nil
 }
 func (s *snapshot) auth(token string) *Key {
@@ -256,7 +277,7 @@ func (s *snapshot) auth(token string) *Key {
 }
 func (s *snapshot) resolve(k *Key, name string) (entry, int) {
 	e, ok := s.names[normalized(name)]
-	if !ok {
+	if !ok || !e.Available {
 		return e, 404
 	}
 	if !e.Enabled || (k.Mode == "selected" && !s.grants[k.ID][e.ID]) {

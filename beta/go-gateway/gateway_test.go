@@ -72,6 +72,16 @@ func call(t *testing.T, server *httptest.Server, path, body string) (int, []byte
 }
 func jsonUp(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
+	if r.Method == "GET" {
+		if r.URL.Path == "/v1/models" {
+			io.WriteString(w, `{"data":[{"id":"real-model","object":"model"}]}`)
+			return
+		}
+		if r.URL.Path == "/v1beta/models" {
+			io.WriteString(w, `{"models":[{"name":"models/real-model"}]}`)
+			return
+		}
+	}
 	io.WriteString(w, `{"model":"real-model","usage":{"completion_tokens":3},"choices":[]}`)
 }
 

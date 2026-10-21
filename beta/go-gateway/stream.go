@@ -53,12 +53,21 @@ func observe(v any, u *usage) {
 	}
 }
 func rewrite(v any, actual, exposed string) {
+	if actual == exposed {
+		return
+	}
+	if list, ok := v.([]any); ok {
+		for _, row := range list {
+			rewrite(row, actual, exposed)
+		}
+		return
+	}
 	m, ok := v.(map[string]any)
 	if !ok {
 		return
 	}
 	for _, k := range []string{"model", "modelVersion"} {
-		if x, ok := m[k].(string); ok && normalized(x) == normalized(actual) {
+		if _, ok := m[k].(string); ok {
 			m[k] = exposed
 		}
 	}
@@ -153,6 +162,7 @@ func (w *deadlineWriter) Write(b []byte) (int, error) {
 func streamSSE(dst *deadlineWriter, src io.Reader, e entry, capBytes int, u *usage, reserved int64) error {
 	// Scanner handles CRLF and never queues events independently of the writer.
 	scanner := bufio.NewScanner(src)
+	scanner.Split(splitSSELines)
 	scanner.Buffer(make([]byte, 4096), capBytes+2)
 	var frame bytes.Buffer
 	flush := func() error {
@@ -237,4 +247,26 @@ func streamSSE(dst *deadlineWriter, src io.Reader, e entry, capBytes int, u *usa
 		return err
 	}
 	return flush()
+}
+
+func splitSSELines(data []byte, atEOF bool) (int, []byte, error) {
+	for i, c := range data {
+		if c == '\n' {
+			return i + 1, data[:i], nil
+		}
+		if c == '\r' {
+			if i+1 == len(data) && !atEOF {
+				return 0, nil, nil
+			}
+			n := 1
+			if i+1 < len(data) && data[i+1] == '\n' {
+				n++
+			}
+			return i + n, data[:i], nil
+		}
+	}
+	if atEOF && len(data) > 0 {
+		return len(data), data, nil
+	}
+	return 0, nil, nil
 }

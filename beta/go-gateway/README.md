@@ -1,6 +1,8 @@
-# ScrollBridge Go Gateway beta 0.1.0
+# ScrollBridge Go Gateway
 
-这是独立的 Go 网关实验版本，分支 `beta/go-gateway`。现有 Electron/Node 程序、Windows 加密配置、Cloudflare 隧道与生产端口没有被替换。当前 beta 使用 JSON 配置和命令行，尚未接入桌面设置页。
+分支 `beta/go-gateway` 现已接入 Electron 桌面。`release/ScrollBridge-0.3.0-beta-win-x64.exe` 为完整桌面 beta；普通版保留 Node 网关。桌面使用现有界面与 Windows 加密存储，通过匿名管道向 Go 子进程发送摘要和策略，不在磁盘写明文运行配置。供给密钥通过子进程环境传递；消费密钥明文仍只由桌面加密保存。详见 [桌面说明](DESKTOP-0.3.0.md)。
+
+以下命令行配置面向单独部署核心的操作人员；独立运行与桌面托管是两种模式，不要将同一账本目录同时交给两个进程。原始 0.1.0 的 exe 和性能报告为历史交付。
 
 ## 启动
 
@@ -31,7 +33,7 @@ Copy-Item config.example.json config.beta.json
 
 配置文件每 500 ms 校验一次。每次编辑必须增加 `version`；建议先生成新文件，`-check` 验证，再以文件替换方式发布。相同版本内容变化、版本倒退、解析失败均不应用。超过 5 秒未获得有效配置时拒绝请求并取消现有调用；恢复有效配置后自动恢复。短暂写入错误期间沿用最后一次有效快照，因此 5 秒内并非强一致。
 
-新版本先完整校验、编译，再原子替换。为保证撤权，当前 beta **取消全部正在执行的旧版本请求**，包括单纯修改价格时；这是保守实现，并非无损发布。监听地址及环境变量中的密钥值变更需要重启。
+新版本先完整校验、编译，再原子替换。权限或资源限制变化会取消旧请求，保证撤权生效；仅修改价格时保留正在执行的请求及其接收时费率，之后的新请求使用新价格。桌面外观、检测选择等没有改变网关配置的保存不会发送重载。监听地址及环境变量中的密钥值变更需要重启。
 
 ## 流式、资源和上游池
 
@@ -94,8 +96,8 @@ go test -race ./... -count=1
 node ../../scripts/benchmark-go-beta.cjs
 ```
 
-支持核心 JSON HTTP：OpenAI chat/completions、completions、Responses、messages、embedding、Google 原生 generateContent/streamGenerateContent/countTokens，及授权后的模型目录。`images: true` 只开启 JSON `/v1/images/generations` 直通，本地代理必须支持对应模型。
+支持 OpenAI chat/completions、completions、Responses HTTP/WebSocket、Anthropic messages、embedding、Google 原生 generateContent/streamGenerateContent/countTokens，及授权后的上游模型目录与单模型详情。`images: true` 开启 JSON 图像生成及 JSON/multipart 图像编辑，本地代理必须支持对应模型；`geminiImageCompatibility` 开启 Gemini 生图协议转换。
 
-**暂缺现有版的 Responses WebSocket、multipart 图像编辑、Gemini 图像协议转换、压缩请求/响应、单模型详情查询、模型目录自动拉取、桌面 UI/开机启动/隧道托管。** 不支持的接口明确拒绝。不能直接用此 beta 完整替换正式版，也没有声称达到企业生产认证。
+已补齐原报告中列出的桌面、隧道生命周期和主要协议功能；支持 gzip、deflate 和 Brotli。桌面继承手动获取模型、开机启动应用后手动连接、托盘驻留、意外退出提示与配置保存。Redis、多供给池和 token 额度仍可在独立核心模式使用，桌面暂以一个本地代理作为供给入口。尚未声称获得企业生产认证，也未恢复已暂停的 RikkaHub 实机问题排查。
 
 设计参考：[Go HTTP streaming](https://pkg.go.dev/net/http)、[Redis Pub/Sub 的 at-most-once 语义](https://redis.io/docs/latest/develop/use-cases/pub-sub/)、[官方 go-redis](https://github.com/redis/go-redis)。依赖版本与校验和固定在 go.mod/go.sum，许可证见 THIRD_PARTY_NOTICES.md。

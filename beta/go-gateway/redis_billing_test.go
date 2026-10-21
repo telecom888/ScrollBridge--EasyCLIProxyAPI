@@ -148,6 +148,7 @@ func TestUsagePriceSwitchAndManualRates(t *testing.T) {
 }
 func TestSSEUsageFramingAndCompletion(t *testing.T) {
 	for _, frame := range []string{
+		"data: {\"usage\":{\"output_tokens\":3}}\r\rdata: [DONE]\r\r",
 		"data: {\"model\":\"real-model\",\n" + "data: \"usage\":{\"prompt_tokens\":10,\"completion_tokens\":3,\"cost\":\"0.2\"}}\n\ndata: [DONE]\n\n",
 		"event: message_delta\r\ndata: {\"type\":\"message_delta\",\"usage\":{\"output_tokens\":3}}\r\n\r\nevent: message_stop\r\ndata: {\"type\":\"message_stop\"}\r\n\r\n",
 		"data: {\"candidates\":[{\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"candidatesTokenCount\":3}}\n\n",

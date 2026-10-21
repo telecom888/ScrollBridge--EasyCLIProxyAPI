@@ -4,7 +4,8 @@ const path = require('node:path');
 const { parseCPA } = require('../lib/import-cpa.cjs');
 const { Store } = require('../lib/store.cjs');
 const { validateConfig, createAccessKey } = require('../lib/config.cjs');
-const { startGateway } = require('../lib/gateway.cjs');
+const gatewayEngine=process.env.SCROLLBRIDGE_GATEWAY_ENGINE || require('../package.json').gatewayEngine || 'node';
+const { startGateway } = require(gatewayEngine==='go'?'../lib/go-gateway.cjs':'../lib/gateway.cjs');
 const { startTunnel } = require('../lib/tunnel.cjs');
 const { provision } = require('../lib/cloudflare.cjs');
 const {localCheck,publicCheck}=require('../lib/diagnostics.cjs');
@@ -15,10 +16,11 @@ if (process.env.SCROLLBRIDGE_TEST_DATA) { fs.mkdirSync(process.env.SCROLLBRIDGE_
 if (!app.requestSingleInstanceLock()) app.quit();
 let window, tray, store, config, secrets, gateway, tunnel, closing = false, busy = false;
 let status = 'stopped', message = '', records = [], logs = [], localDiagnostic = null, publicDiagnostic = null;
-const view = () => ({ config, keys:config.accessKeys.map(key=>({...key,masked:`${secrets.keyValues[key.id].slice(0,6)}…${secrets.keyValues[key.id].slice(-4)}`})), modelEntries:entries(config),hasUpstreamKey: !!secrets.upstreamKey, hasTunnelToken: !!secrets.tunnelToken, gatewayRunning: !!gateway, status, message, records, logs, localDiagnostic, publicDiagnostic, version: app.getVersion() });
-function commit(next,nextSecrets=secrets) {
+const view = () => ({ config, keys:config.accessKeys.map(key=>({...key,masked:`${secrets.keyValues[key.id].slice(0,6)}…${secrets.keyValues[key.id].slice(-4)}`})), modelEntries:entries(config),hasUpstreamKey: !!secrets.upstreamKey, hasTunnelToken: !!secrets.tunnelToken, gatewayRunning: !!gateway, status, message, records, logs, localDiagnostic, publicDiagnostic, version: app.getVersion(),features:{billing:gatewayEngine==='go'} });
+async function synchronizeGateway(){try{await gateway?.refreshPolicy();}catch{await stop();state('error','配置已保存，网关更新失败，连接已停止');throw new Error('配置已保存，网关更新失败，请重新连接');}}
+async function commit(next,nextSecrets=secrets) {
   next=validateConfig(next);store.save(next,nextSecrets);config=next;secrets=nextSecrets;
-  publicDiagnostic=null;gateway?.refreshPolicy();publish();return view();
+  publicDiagnostic=null;await synchronizeGateway();publish();return view();
 }
 function findKey(id) {const key=config.accessKeys.find(row=>row.id===id);if(!key)throw new Error('密钥不存在');return key;}
 function publish() { if (window && !window.isDestroyed()) window.webContents.send('update', view()); }
@@ -34,7 +36,7 @@ async function probe(url, key, isPublic = false) {
   if (!isPublic && !Array.isArray(data.data)) throw new Error('本地服务没有返回 OpenAI 模型列表');
   return isPublic ? { ok: true, message: '域名 HTTPS 和网关鉴权正常' } : { ok: true, message: `本地服务正常，提供 ${data.data.length} 个模型`, models: data.data.map(m => m.id).slice(0, 80) };
 }
-function save(payload = {}) {
+async function save(payload = {}) {
   if(['accessKeys','modelRules'].some(field=>payload.config?.[field]!==undefined) || payload.accessKey!==undefined)throw new Error('请通过密钥或模型页面编辑');
   const next = validateConfig({ ...config, ...payload.config });
   if ((gateway || tunnel) && (payload.clearUpstreamKey || ['upstream', 'port', 'hostname', 'protocol'].some(k => next[k] !== config[k]) || ['upstreamKey', 'tunnelToken', 'accessKey'].some(k => payload[k]))) throw new Error('请先停止连接再保存连接配置');
@@ -48,7 +50,7 @@ function save(payload = {}) {
   if (payload.config?.diagnosticModel !== undefined || payload.config?.diagnosticKeyId !== undefined) publicDiagnostic = null;
   if (payload.config?.hostname !== undefined || payload.tunnelToken || payload.clearUpstreamKey || payload.upstreamKey || payload.config?.upstream !== undefined) {localDiagnostic=null;publicDiagnostic=null;}
   app.setLoginItemSettings({ openAtLogin: !!config.launchAtLogin, path: process.env.PORTABLE_EXECUTABLE_FILE || app.getPath('exe') });
-  gateway?.refreshPolicy();publish(); return view();
+  await synchronizeGateway();publish(); return view();
 }
 const actions = {
   snapshot: () => view(),
@@ -106,7 +108,7 @@ const actions = {
     state('starting');
     try {
       await probe(`${config.upstream}/v1/models`, secrets.upstreamKey);
-      gateway = await startGateway(config, secrets, record => { records.unshift(record); records = records.slice(0, 200); publish(); }, { getConfig:()=>config,getSecrets:()=>secrets,getImagesEnabled: () => config.imagesEnabled, getGeminiImageCompatibility: () => config.geminiImageCompatibility });
+      gateway = await startGateway(config, secrets, record => { const index=record.id?records.findIndex(row=>row.id===record.id):-1;if(index>=0)records[index]=record;else records.unshift(record);records=records.slice(0,200);publish(); }, { executable:app.isPackaged?path.join(process.resourcesPath,'vendor','scrollbridge-gateway.exe'):path.join(app.getAppPath(),'vendor','scrollbridge-gateway.exe'),stateDir:path.join(app.getPath('userData'),'gateway-go'),onExit:()=>{void stop().then(()=>state('error','网关意外退出，请重新连接'));},getConfig:()=>config,getSecrets:()=>secrets,getImagesEnabled: () => config.imagesEnabled, getGeminiImageCompatibility: () => config.geminiImageCompatibility });
       const executable = app.isPackaged ? path.join(process.resourcesPath, 'vendor', 'cloudflared.exe') : path.join(app.getAppPath(), 'vendor', 'cloudflared.exe');
       tunnel = startTunnel({ executable, token: secrets.tunnelToken, protocol: config.protocol, runtimeDir: path.join(app.getPath('userData'), 'runtime'), onState: state, onLog: log });
       log('网关已启动，等待隧道连接');
@@ -120,7 +122,7 @@ const actions = {
     if (result.canceled) return null;
     const filename = result.filePaths[0]; if (fs.statSync(filename).size > 2 * 1024 * 1024) throw new Error('配置文件过大');
     const { upstream, upstreamKey } = parseCPA(fs.readFileSync(filename, 'utf8'));
-    save({ config: { upstream }, upstreamKey, clearUpstreamKey: !upstreamKey });
+    await save({ config: { upstream }, upstreamKey, clearUpstreamKey: !upstreamKey });
     return { ok: true, message: '已导入服务地址和首个客户端密钥' };
   },
   bind: async payload => {

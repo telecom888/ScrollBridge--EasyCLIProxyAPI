@@ -1,5 +1,7 @@
 # 卷桥 Go beta 快速开始
 
+> 历史说明：此页对应 0.1.0 独立核心。最新桌面 beta 直接运行 `release/ScrollBridge-0.3.0-beta-win-x64.exe`，无需手动生成 JSON 配置；详见 DESKTOP-0.3.0.md。
+
 这是独立的命令行网关，尚未接入桌面 UI。不会读取或覆盖正式版配置，也不自动启动隧道。
 
 1. 解压压缩包，将 `config.example.json` 复制为 `config.beta.json`。

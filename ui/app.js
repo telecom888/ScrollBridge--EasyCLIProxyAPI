@@ -37,12 +37,12 @@ async function task(button, fn) { if (pending) return; pending = true; if (butto
 function page(name) {
   if (name === currentPage) return;
   currentPage = name;
-  document.body.dataset.page=name;$('new-key').hidden=name!=='keys';$('key-page-description').hidden=name!=='keys';$('key-menu').hidePopover();
+  document.body.dataset.page=name;$('new-key').hidden=name!=='keys';$('key-menu').hidePopover();
   document.querySelectorAll('.page').forEach(el => el.hidden = el.id !== `page-${name}`);
   const selected = document.querySelector(`.nav[data-page="${name}"]`);
   moveSelection(selected.parentElement, selected);
   $('page-title').textContent = {connection:'连接',access:'接入',keys:'密钥',catalog:'模型',records:'记录',settings:'设置'}[name];
-  reveal($(`page-${name}`)); reveal($('page-title'));
+  reveal($(`page-${name}`)); reveal(document.querySelector('.page-heading'));
 }
 document.querySelectorAll('[data-page]').forEach(el => el.onclick = () => page(el.dataset.page));
 function applyTheme(theme) { const resolved = theme === 'system' ? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : theme; document.documentElement.dataset.theme = resolved; $('theme-toggle').innerHTML = icon(resolved === 'dark' ? 'sun' : 'moon'); document.querySelectorAll('[data-theme]').forEach(el => el.classList.toggle('active', el.dataset.theme === theme)); }
@@ -60,7 +60,7 @@ function render(s) {
   $('imagesEnabled').checked = s.config.imagesEnabled;
   $('geminiImageCompatibility').checked = s.config.geminiImageCompatibility;
   renderManagement();renderDiagnosticModels();
-  $('version').textContent = `v${s.version}`; renderExample(); renderRecords(); renderDiagnostics(); renderModelCatalog();
+  $('version').textContent = `v${s.version.replace(/-beta(?:\.\d+)?$/,' beta')}`; renderBilling();renderExample(); renderRecords(); renderDiagnostics(); renderModelCatalog();
 }
 for (const id of ['upstream','port','hostname','upstreamKey','tunnelToken']) $(id).addEventListener('input', () => { dirty = true; });
 async function saveForm() { const s = await call('save', { config: {upstream:$('upstream').value,port:Number($('port').value),hostname:$('hostname').value}, upstreamKey:$('upstreamKey').value,tunnelToken:$('tunnelToken').value }); dirty = false; $('upstreamKey').value = ''; $('tunnelToken').value = ''; render(s); }
@@ -102,6 +102,11 @@ document.querySelectorAll('[data-theme]').forEach(el => el.onclick = () => task(
 $('transport').onchange = () => task(null, () => changeSetting({protocol:$('transport').value})); $('launchAtLogin').onchange = () => task(null, () => changeSetting({launchAtLogin:$('launchAtLogin').checked}));
 $('imagesEnabled').onchange = () => task($('imagesEnabled'), async () => { try { await changeSetting({imagesEnabled:$('imagesEnabled').checked}); } finally { render(await call('snapshot')); } });
 $('geminiImageCompatibility').onchange = () => task($('geminiImageCompatibility'), async () => { try { await changeSetting({geminiImageCompatibility:$('geminiImageCompatibility').checked}); } finally { render(await call('snapshot')); } });
+let billingDirty=false;
+function renderBilling(){const form=$('billing-form');form.hidden=!snapshot.features?.billing;if(form.hidden||billingDirty)return;const b=snapshot.config.billing;$('billing-enabled').checked=b.enabled;$('billing-usage-price').checked=b.readUsagePrice;for(const [id,v]of [['currency',b.currency],['pointer',b.usageCostPointer],['input',b.rates.inputPerMillion],['output',b.rates.outputPerMillion],['cached',b.rates.cachedInputPerMillion]])$('billing-'+id).value=v;updateBillingFields();}
+function updateBillingFields(){const usage=$('billing-usage-price').checked;for(const id of ['input','output','cached'])$('billing-'+id).disabled=usage;$('billing-pointer-label').hidden=!usage;}
+$('billing-form').addEventListener('input',()=>{billingDirty=true;updateBillingFields();});
+$('billing-form').onsubmit=e=>{e.preventDefault();task(e.submitter,async()=>{const billing={enabled:$('billing-enabled').checked,currency:$('billing-currency').value.trim().toUpperCase(),readUsagePrice:$('billing-usage-price').checked,usageCostPointer:$('billing-pointer').value.trim(),rates:{inputPerMillion:$('billing-input').value.trim(),outputPerMillion:$('billing-output').value.trim(),cachedInputPerMillion:$('billing-cached').value.trim()}};const s=await call('save',{config:{billing}});billingDirty=false;render(s);toast('费用设置已保存');});};
 $('diagnostic-model').onchange = () => task($('diagnostic-model'), async () => { try { await changeSetting({diagnosticModel:$('diagnostic-model').value}); } finally { render(await call('snapshot')); } });
 $('refresh-diagnostic-models').onclick = () => task($('refresh-diagnostic-models'), async () => { if(dirty) await saveForm(); render(await call('refreshModels')); toast('模型列表已更新'); });
 function renderDiagnosticModels() {
@@ -134,12 +139,13 @@ function renderRecords() {
   const requests=$('requests-table');
   if (!snapshot.records.length) replaceContent(requests,`<div class="empty">${icon('file')}暂无请求</div>`);
   else {
-    if(!requests.querySelector('tbody')) requests.innerHTML='<table><thead><tr><th>时间</th><th>密钥</th><th>方法</th><th>模型</th><th>路径</th><th>状态</th><th>耗时</th></tr></thead><tbody></tbody></table>';
+    if(!requests.querySelector('tbody')) requests.innerHTML='<table><thead><tr><th>时间</th><th>密钥</th><th>方法</th><th>模型</th><th>路径</th><th>状态</th><th>耗时</th>'+(snapshot.features?.billing?'<th>费用</th>':'')+'</tr></thead><tbody></tbody></table>';
     const occurrences=new Map();
     const rows=snapshot.records.map(r=>{
       const signature=JSON.stringify([r.time,r.keyId,r.method,r.model,r.actualModel,r.path,r.status,r.ms]);
       const count=occurrences.get(signature)||0; occurrences.set(signature,count+1);
-      return `<tr data-row-key="${escapeHTML(`${signature}:${count}`)}"><td>${time(r.time)}</td><td>${escapeHTML(r.keyName || '—')}</td><td>${escapeHTML(r.method)}</td><td class="record-model"><span>${escapeHTML(r.model || '—')}</span>${r.actualModel && r.actualModel!==r.model?`<small>实际模型：${escapeHTML(r.actualModel)}</small>`:''}</td><td class="path">${escapeHTML(r.path)}</td><td><span class="status-pill ${r.status >= 400 ? 'bad' : ''}">${r.status}</span></td><td>${r.ms} ms</td></tr>`;
+      const cost=r.billing? r.billing.amount!==undefined?`${r.billing.amount} ${r.billing.currency}${r.billing.complete?'':'（未完成）'}`:'未提供':'—';
+      return `<tr data-row-key="${escapeHTML(`${signature}:${count}`)}"><td>${time(r.time)}</td><td>${escapeHTML(r.keyName || '—')}</td><td>${escapeHTML(r.method)}</td><td class="record-model"><span>${escapeHTML(r.model || '—')}</span>${r.actualModel && r.actualModel!==r.model?`<small>实际模型：${escapeHTML(r.actualModel)}</small>`:''}</td><td class="path">${escapeHTML(r.path)}</td><td><span class="status-pill ${r.status >= 400 ? 'bad' : ''}">${r.status}</span></td><td>${r.ms} ms</td>${snapshot.features?.billing?`<td>${escapeHTML(cost)}</td>`:''}</tr>`;
     }).join('');
     reconcileRows(requests.querySelector('tbody'),rows,row=>row.dataset.rowKey);
   }

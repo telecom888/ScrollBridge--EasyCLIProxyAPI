@@ -12,8 +12,6 @@ import (
 	"mime"
 	"net/http"
 	"net/url"
-	"os"
-	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -31,6 +29,7 @@ type gateway struct {
 	pool                       *pool
 	ledger                     accounting
 	audit                      *audit
+	record                     func(map[string]any)
 	auditFailed                atomic.Bool
 	mu                         sync.Mutex
 	active                     map[*flight]bool
@@ -69,9 +68,12 @@ func (g *gateway) apply(s *snapshot) error {
 	}
 	g.current.Store(s)
 	g.pool.prune(s.cfg.Upstreams)
-	// Cancel every old flight: revocation must not wait for a long-lived stream.
+	// Access/resource changes cancel old flights. Price-only updates preserve
+	// in-flight quotes and must not interrupt an otherwise healthy generation.
 	for f := range g.active {
-		f.cancel()
+		if old.accessSignature != s.accessSignature {
+			f.cancel()
+		}
 	}
 	return nil
 }
@@ -165,16 +167,22 @@ var posts = map[string]bool{"/v1/chat/completions": true, "/v1/completions": tru
 
 func route(r *http.Request, images bool) (list bool, pathModel string, ok bool) {
 	p := r.URL.Path
-	if r.URL.RawPath != "" || strings.Contains(p, "..") || r.Header.Get("Upgrade") != "" {
+	if r.URL.RawPath != "" || strings.Contains(p, "..") {
 		return false, "", false
 	}
 	if r.Method == "GET" {
+		for _, prefix := range []string{"/v1/models/", "/v1beta/models/"} {
+			if strings.HasPrefix(p, prefix) {
+				name := strings.TrimPrefix(p, prefix)
+				return false, name, validID.MatchString(name)
+			}
+		}
 		return p == "/v1/models" || p == "/v1beta/models", "", p == "/healthz" || p == "/v1/models" || p == "/v1beta/models"
 	}
 	if r.Method != "POST" {
 		return false, "", false
 	}
-	if posts[p] || images && (p == "/v1/images/generations") {
+	if posts[p] || images && (p == "/v1/images/generations" || p == "/v1/images/edits") {
 		return false, "", true
 	}
 	if strings.HasPrefix(p, "/v1beta/models/") {
@@ -252,6 +260,21 @@ func outputLimit(m map[string]any, path string, k *Key) (int64, error) {
 	return requested, nil
 }
 func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	rw := &recordWriter{ResponseWriter: w}
+	w = rw
+	record := map[string]any{"time": time.Now().UTC().Format(time.RFC3339Nano), "method": r.Method, "path": r.URL.Path}
+	began := time.Now()
+	defer func() {
+		if g.record != nil && rw.status != 101 {
+			status := rw.status
+			if status == 0 {
+				status = 499
+			}
+			record["status"] = status
+			record["ms"] = time.Since(began).Milliseconds()
+			g.record(record)
+		}
+	}()
 	_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(time.Duration(g.current.Load().cfg.Limits.WriteSeconds) * time.Second))
 	g.requests.Add(1)
 	start := time.Now()
@@ -262,10 +285,19 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		problem(w, 401, "invalid API key")
 		return
 	}
+	record["keyId"] = k.ID
+	if strings.EqualFold(r.Header.Get("Upgrade"), "websocket") {
+		g.serveWebSocket(w, r, s, k)
+		return
+	}
 	list, pathModel, ok := route(r, s.cfg.Images)
 	if !ok {
 		g.rejected.Add(1)
-		problem(w, 404, "endpoint not enabled in Go beta")
+		if strings.HasPrefix(r.URL.Path, "/v1/images/") {
+			problem(w, 404, "Image endpoints are disabled")
+		} else {
+			problem(w, 404, "endpoint not enabled")
+		}
 		return
 	}
 	if g.stale.Load() || g.auditFailed.Load() {
@@ -298,6 +330,7 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			g.failed.Add(1)
 		}
 		bill := calculateBill(billing, u)
+		record["billing"] = bill
 		if bill != nil && requested != "" && g.audit != nil {
 			id := make([]byte, 16)
 			_, idErr := rand.Read(id)
@@ -316,41 +349,22 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{"ok": true, "version": s.cfg.Version})
+		json.NewEncoder(w).Encode(map[string]any{"ok": true, "service": "scrollbridge", "version": s.cfg.Version})
 		return
 	}
 	if list {
-		names := []string{}
-		for _, e := range s.names {
-			if _, code := s.resolve(k, e.Name); code == 0 {
-				names = append(names, e.Name)
-			}
-		}
-		sort.Strings(names)
-		items := []any{}
-		google := strings.HasPrefix(r.URL.Path, "/v1beta/")
-		for _, n := range names {
-			if google {
-				items = append(items, map[string]any{"name": "models/" + n, "supportedGenerationMethods": []string{"generateContent", "streamGenerateContent", "countTokens"}})
-			} else {
-				items = append(items, map[string]any{"id": n, "object": "model", "owned_by": "scrollbridge"})
-			}
+		b, code, err := g.modelDirectory(ctx, s, k, r.URL.Path)
+		if err != nil {
+			reject(code, "upstream model directory unavailable")
+			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		if google {
-			json.NewEncoder(w).Encode(map[string]any{"models": items})
-		} else {
-			json.NewEncoder(w).Encode(map[string]any{"object": "list", "data": items})
-		}
-		return
-	}
-	if r.Header.Get("Content-Encoding") != "" && r.Header.Get("Content-Encoding") != "identity" {
-		reject(415, "compressed requests are not supported in this beta")
+		w.Write(b)
 		return
 	}
 	mt, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type"))
-	if mt != "application/json" {
-		reject(415, "JSON request required")
+	if r.ContentLength > s.cfg.Limits.BodyBytes {
+		reject(413, "request body limit")
 		return
 	}
 	raw, free, err := g.read(r.Body, s.cfg.Limits.BodyBytes, s.cfg.Limits.MemoryBytes)
@@ -359,11 +373,53 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer free()
-	value, err := strictJSON(raw)
-	m, object := value.(map[string]any)
-	if err != nil || !object {
-		reject(400, "invalid or ambiguous JSON")
+	if g.current.Load().auth(token(r)) == nil {
+		reject(401, "API key revoked while uploading")
 		return
+	}
+	decoded := raw
+	if enc := r.Header.Get("Content-Encoding"); enc != "" && enc != "identity" {
+		reader, close, e := decodeReader(bytes.NewReader(raw), enc)
+		if e != nil {
+			reject(415, "invalid content encoding")
+			return
+		}
+		defer close()
+		var release func()
+		decoded, release, err = g.read(reader, s.cfg.Limits.BodyBytes, s.cfg.Limits.MemoryBytes)
+		if err != nil {
+			reject(413, "decoded request limit")
+			return
+		}
+		defer release()
+	}
+	m := map[string]any{}
+	var files []upload
+	multipartRequest := mt == "multipart/form-data"
+	if r.Method != "GET" {
+		if multipartRequest {
+			if r.URL.Path != "/v1/images/edits" {
+				reject(415, "multipart requires image edits")
+				return
+			}
+			m, files, err = parseMultipart(decoded, r.Header.Get("Content-Type"))
+		} else {
+			if mt != "application/json" && mt != "" && mt != "text/plain" {
+				reject(415, "JSON request required")
+				return
+			}
+			var v any
+			v, err = strictJSON(decoded)
+			var object bool
+			m, object = v.(map[string]any)
+			if !object {
+				err = errors.New("expected JSON object")
+			}
+		}
+		if err != nil {
+			reject(400, "invalid or ambiguous request body")
+			return
+		}
 	}
 	bodyModel, _ := m["model"].(string)
 	requested = bodyModel
@@ -378,14 +434,25 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		reject(400, "model is required")
 		return
 	}
+	if len(requested) > 512 || strings.IndexFunc(requested, func(r rune) bool { return r < 32 || r == 127 }) >= 0 {
+		requested = ""
+		reject(400, "invalid model ID")
+		return
+	}
+	record["model"] = requested
 	e, code := s.resolve(k, requested)
 	if code != 0 {
 		reject(code, "model unavailable for this key")
 		return
 	}
 	actual = e.Actual
+	record["model"] = requested
+	record["actualModel"] = actual
+	record["model"] = requested
+	record["actualModel"] = actual
 	billing = e.Billing
 	f.model = requested
+	needsRewrite := bodyModel != "" && bodyModel != actual
 	if nested, ok := m["response"].(map[string]any); ok {
 		if n, exists := nested["model"]; exists {
 			if n != requested {
@@ -393,6 +460,7 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			nested["model"] = actual
+			needsRewrite = needsRewrite || actual != requested
 		}
 	}
 	if bodyModel != "" {
@@ -424,7 +492,18 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 		}()
 	}
-	body, err := json.Marshal(m)
+	body := raw
+	outContentType := r.Header.Get("Content-Type")
+	outEncoding := r.Header.Get("Content-Encoding")
+	if needsRewrite || reservation > 0 {
+		if multipartRequest {
+			body, outContentType, err = encodeMultipart(m, files)
+		} else {
+			body, err = json.Marshal(m)
+			outContentType = "application/json"
+		}
+		outEncoding = ""
+	}
 	if err != nil {
 		reject(400, "cannot encode request")
 		return
@@ -436,10 +515,37 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	upID = supply.ID
+	if s.cfg.Images && s.cfg.GeminiImages && strings.HasPrefix(r.URL.Path, "/v1/images/") && isGeminiImage(actual) {
+		dispatched = true
+		data, imageStatus, imageUsage, imageErr := g.generateImages(ctx, s, supply, m, files, r.URL.Path == "/v1/images/edits")
+		if imageStatus < 500 {
+			done(imageStatus, nil, nil)
+		} else {
+			done(imageStatus, nil, imageErr)
+		}
+		u = imageUsage
+		status = imageStatus
+		if imageErr != nil {
+			result = "image_failed"
+			reject(imageStatus, imageErr.Error())
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Cache-Control", "no-store")
+		w.WriteHeader(200)
+		if _, err = w.Write(data); err != nil {
+			result = "client_write_failed"
+		}
+		return
+	}
 	target, _ := url.Parse(supply.URL)
 	target.Path = r.URL.Path
 	if pathModel != "" {
-		target.Path = strings.Replace(target.Path, "/models/"+pathModel+":", "/models/"+actual+":", 1)
+		if r.Method == "GET" {
+			target.Path = strings.TrimSuffix(target.Path, pathModel) + actual
+		} else {
+			target.Path = strings.Replace(target.Path, "/models/"+pathModel+":", "/models/"+actual+":", 1)
+		}
 	}
 	q := r.URL.Query()
 	for _, n := range []string{"key", "api_key", "access_token"} {
@@ -456,16 +562,15 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	req.Header = r.Header.Clone()
 	strip(req.Header, true)
 	req.Header.Del("Content-Length")
-	req.Header.Set("Accept-Encoding", "identity")
-	if secret := os.Getenv(supply.KeyEnv); secret != "" {
-		if strings.HasPrefix(target.Path, "/v1beta/") {
-			req.Header.Set("X-Goog-API-Key", secret)
-		} else if strings.HasPrefix(target.Path, "/v1/messages") {
-			req.Header.Set("X-API-Key", secret)
-		} else {
-			req.Header.Set("Authorization", "Bearer "+secret)
-		}
+	req.Header.Del("Content-Encoding")
+	if outEncoding != "" {
+		req.Header.Set("Content-Encoding", outEncoding)
 	}
+	if outContentType != "" {
+		req.Header.Set("Content-Type", outContentType)
+	}
+	req.Header.Set("Accept-Encoding", "identity")
+	supplyCredentials(req, supply)
 	if ctx.Err() != nil {
 		done(499, nil, nil)
 		result = "cancelled_before_dispatch"
@@ -505,11 +610,38 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}()
-	if encoding := response.Header.Get("Content-Encoding"); encoding != "" && encoding != "identity" {
-		result = "unsupported_encoding"
-		reject(502, "upstream ignored identity encoding")
+	responseType, _, _ := mime.ParseMediaType(response.Header.Get("Content-Type"))
+	if actual == requested && !billing.Enabled && reservation == 0 && r.Method != "GET" && responseType != "text/event-stream" && response.Header.Get("Content-Encoding") != "" {
+		b, release, e := g.read(response.Body, s.cfg.Limits.ResponseBytes, s.cfg.Limits.MemoryBytes)
+		if e != nil {
+			result = "response_limit"
+			reject(502, "response limit")
+			return
+		}
+		defer release()
+		if int64(len(b)) > s.cfg.Limits.OutputBytes {
+			reject(502, "output limit")
+			return
+		}
+		headers := response.Header.Clone()
+		strip(headers, false)
+		headers.Set("Cache-Control", "no-store")
+		for key, value := range headers {
+			w.Header()[key] = value
+		}
+		w.WriteHeader(status)
+		if _, err = w.Write(b); err != nil {
+			result = "client_write_failed"
+		}
 		return
 	}
+	responseReader, closeDecoder, err := decodeReader(response.Body, response.Header.Get("Content-Encoding"))
+	if err != nil {
+		result = "unsupported_encoding"
+		reject(502, "invalid upstream encoding")
+		return
+	}
+	defer closeDecoder()
 	headers := response.Header.Clone()
 	strip(headers, false)
 	for _, n := range []string{"Content-Length", "Content-Encoding", "ETag", "Content-MD5", "Digest"} {
@@ -533,7 +665,7 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Accel-Buffering", "no")
 		w.WriteHeader(status)
 		_ = http.NewResponseController(w).Flush()
-		err = streamSSE(dst, response.Body, e, s.cfg.Limits.EventBytes, &u, reservation)
+		err = streamSSE(dst, responseReader, e, s.cfg.Limits.EventBytes, &u, reservation)
 		if err != nil {
 			result = "stream_interrupted"
 			cancel()
@@ -542,7 +674,7 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Buffered JSON is bounded across all requests; oversized payloads fail before headers commit.
-	b, release, err := g.read(response.Body, s.cfg.Limits.ResponseBytes, s.cfg.Limits.MemoryBytes)
+	b, release, err := g.read(responseReader, s.cfg.Limits.ResponseBytes, s.cfg.Limits.MemoryBytes)
 	if err != nil {
 		result = "response_limit"
 		reject(502, "upstream response or shared buffer limit")
@@ -562,6 +694,19 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		u.Complete = true
 		rewrite(v, actual, requested)
+		if r.Method == "GET" {
+			if object, ok := v.(map[string]any); ok {
+				if _, ok = object["id"]; ok {
+					object["id"] = requested
+				}
+				if _, ok = object["name"]; ok {
+					object["name"] = "models/" + requested
+				}
+				if _, ok = object["displayName"]; ok {
+					object["displayName"] = requested
+				}
+			}
+		}
 		b, _ = json.Marshal(v)
 	}
 	if int64(len(b)) > s.cfg.Limits.OutputBytes {

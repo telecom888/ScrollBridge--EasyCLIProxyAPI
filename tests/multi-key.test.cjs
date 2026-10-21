@@ -6,7 +6,7 @@ const {once}=require('node:events');
 const {WebSocketServer,WebSocket}=require('ws');
 const {validateConfig,createAccessKey}=require('../lib/config.cjs');
 const {newKey,syncModels,entries,resolveModel}=require('../lib/policy.cjs');
-const {startGateway}=require('../lib/gateway.cjs');
+const {startGateway}=require(process.env.SCROLLBRIDGE_TEST_ENGINE==='go'?'../lib/go-gateway.cjs':'../lib/gateway.cjs');
 const {parseImageMultipart}=require('../lib/gemini-images.cjs');
 async function fixture(t,handler) {
   const seen=[];
@@ -30,9 +30,9 @@ async function fixture(t,handler) {
   config.modelRules[0].aliases=[{id:'alias-a',name:'chat-fast'},{id:'alias-b',name:'assistant'}];
   limited.mode='selected';limited.allowed=['alias-a'];config=validateConfig(config);
   let secrets={upstreamKey:'private-upstream',tunnelToken:'',keyValues:{[all.id]:createAccessKey(),[limited.id]:createAccessKey()}};
-  const records=[],gateway=await startGateway(config,secrets,row=>records.push(row),{getConfig:()=>config,getSecrets:()=>secrets,getImagesEnabled:()=>config.imagesEnabled,getGeminiImageCompatibility:()=>config.geminiImageCompatibility});
+  const records=[],gateway=await startGateway(config,secrets,row=>records.push(row),{stateDir:require('node:path').resolve('.test-output','go-contract-'+require('node:crypto').randomUUID()),getConfig:()=>config,getSecrets:()=>secrets,getImagesEnabled:()=>config.imagesEnabled,getGeminiImageCompatibility:()=>config.geminiImageCompatibility});
   t.after(async()=>{await gateway.close();upstream.closeAllConnections();await new Promise(r=>upstream.close(r));});
-  return {base:`http://127.0.0.1:${port}`,server:gateway.server,upstream,seen,records,all,limited,get config(){return config;},get secrets(){return secrets;},auth:(key=all)=>({authorization:`Bearer ${secrets.keyValues[key.id]}`}),update:fn=>{const next=structuredClone(config);fn(next);config=validateConfig(next);gateway.refreshPolicy();},rotate:key=>{secrets={...secrets,keyValues:{...secrets.keyValues,[key.id]:createAccessKey()}};gateway.refreshPolicy();}};
+  return {base:`http://127.0.0.1:${port}`,server:gateway.server,gateway,upstream,seen,records,all,limited,get config(){return config;},get secrets(){return secrets;},auth:(key=all)=>({authorization:`Bearer ${secrets.keyValues[key.id]}`}),update:async fn=>{const next=structuredClone(config);fn(next);config=validateConfig(next);await gateway.refreshPolicy();},rotate:async key=>{secrets={...secrets,keyValues:{...secrets.keyValues,[key.id]:createAccessKey()}};await gateway.refreshPolicy();}};
 }
 test('per-key lists, aliases, raw ID switch and global policy agree across authentication forms',async t=>{
   const f=await fixture(t);
@@ -47,12 +47,12 @@ test('per-key lists, aliases, raw ID switch and global policy agree across authe
   for(const headers of [{'x-api-key':f.secrets.keyValues[f.limited.id]},{'x-goog-api-key':f.secrets.keyValues[f.limited.id]}]){
     const r=await fetch(f.base+'/v1/chat/completions',{method:'POST',headers,body:'{"model":"chat-fast"}'});assert.equal(r.status,200);assert.equal((await r.json()).model,'chat-fast');
   }
-  f.update(c=>{c.modelRules[0].keepOriginal=true;});
+  await f.update(c=>{c.modelRules[0].keepOriginal=true;});
   assert.ok((await list(f.all)).data.some(row=>row.id==='gemini-real'));
   assert.equal((await send('gemini-real',f.limited)).status,403);
-  f.update(c=>{c.accessKeys.find(k=>k.id===f.limited.id).allowed.push(c.modelRules[0].originalId);});
+  await f.update(c=>{c.accessKeys.find(k=>k.id===f.limited.id).allowed.push(c.modelRules[0].originalId);});
   assert.equal((await send('gemini-real',f.limited)).status,200);
-  f.update(c=>{c.disabledModels=['gemini-real'];});
+  await f.update(c=>{c.disabledModels=['gemini-real'];});
   assert.equal((await send('chat-fast')).status,403);assert.equal((await send('gemini-real',f.limited)).status,403);
   assert.deepEqual((await list(f.limited)).data,[]);
   assert.ok(!JSON.stringify(f.records).includes(f.secrets.keyValues[f.all.id]));
@@ -81,11 +81,11 @@ test('aliased multipart edits preserve reference image bytes and filename',async
 });
 test('Gemini image compatibility uses the actual model behind a neutral alias',async t=>{
   const f=await fixture(t,(req,res)=>{res.setHeader('content-type','application/json');res.end('{"candidates":[{"content":{"parts":[{"inlineData":{"mimeType":"image/png","data":"aW1hZ2U="}}]}}]}');});
-  f.update(c=>{c.geminiImageCompatibility=true;c.modelRules.find(row=>row.actual==='gemini-3.1-flash-image').aliases=[{id:'draw-alias',name:'draw'}];});
+  await f.update(c=>{c.geminiImageCompatibility=true;c.modelRules.find(row=>row.actual==='gemini-3.1-flash-image').aliases=[{id:'draw-alias',name:'draw'}];});
   const send=key=>fetch(f.base+'/v1/images/generations',{method:'POST',headers:f.auth(key),body:'{"model":"draw","prompt":"test"}'});
   const r=await send(f.all);assert.equal(r.status,200);assert.equal((await r.json()).data[0].b64_json,'aW1hZ2U=');assert.equal(f.seen[0].path,'/v1beta/models/gemini-3.1-flash-image:generateContent');
   assert.equal((await send(f.limited)).status,403);
-  f.update(c=>{c.disabledModels=['gemini-3.1-flash-image'];});assert.equal((await send(f.all)).status,403);
+  await f.update(c=>{c.disabledModels=['gemini-3.1-flash-image'];});assert.equal((await send(f.all)).status,403);
 });
 test('aliased JSON response decompresses and removes obsolete integrity headers',async t=>{
   const f=await fixture(t,(req,res)=>{const bytes=zlib.brotliCompressSync(Buffer.from('{"model":"gemini-real-v2","message":{"model":"gemini-real","content":"gemini-real"}}'));res.writeHead(200,{'content-type':'application/json','content-encoding':'br','content-length':bytes.length,'etag':'old','digest':'old'});res.end(bytes);});
@@ -109,10 +109,10 @@ test('aliased gzip SSE stays incremental and handles split UTF-8 and multiline d
 });
 test('key disable, rotation and removal are live and independent',async t=>{
   const f=await fixture(t);const old=f.auth(f.all);
-  f.rotate(f.all);assert.equal((await fetch(f.base+'/healthz',{headers:old})).status,401);assert.equal((await fetch(f.base+'/healthz',{headers:f.auth(f.all)})).status,200);
-  f.update(c=>{c.accessKeys.find(k=>k.id===f.all.id).enabled=false;});
+  await f.rotate(f.all);assert.equal((await fetch(f.base+'/healthz',{headers:old})).status,401);assert.equal((await fetch(f.base+'/healthz',{headers:f.auth(f.all)})).status,200);
+  await f.update(c=>{c.accessKeys.find(k=>k.id===f.all.id).enabled=false;});
   assert.equal((await fetch(f.base+'/healthz',{headers:f.auth(f.all)})).status,401);assert.equal((await fetch(f.base+'/healthz',{headers:f.auth(f.limited)})).status,200);
-  f.update(c=>{c.accessKeys=c.accessKeys.filter(k=>k.id!==f.all.id);});assert.equal((await fetch(f.base+'/healthz',{headers:f.auth(f.all)})).status,401);
+  await f.update(c=>{c.accessKeys=c.accessKeys.filter(k=>k.id!==f.all.id);});assert.equal((await fetch(f.base+'/healthz',{headers:f.auth(f.all)})).status,401);
 });
 test('WebSocket aliases, nested conflicts, inheritance and live revocation',async t=>{
   const f=await fixture(t);const wss=new WebSocketServer({server:f.upstream});const upstreamBodies=[];
@@ -122,17 +122,17 @@ test('WebSocket aliases, nested conflicts, inheritance and live revocation',asyn
   ws.send('{"type":"response.create","model":"chat-fast"}');assert.equal(JSON.parse((await once(ws,'message'))[0]).response.model,'chat-fast');assert.equal(upstreamBodies[0].model,'gemini-real');
   ws.send('{"type":"response.create","previous_response_id":"r1"}');assert.equal(JSON.parse((await once(ws,'message'))[0]).response.model,'chat-fast');assert.equal(upstreamBodies[1].model,'gemini-real');
   ws.send('{"type":"response.create","model":"chat-fast","response":{"model":"assistant"}}');assert.equal(JSON.parse((await once(ws,'message'))[0]).status,403);assert.equal(upstreamBodies.length,2);
-  const closed=once(ws,'close');f.rotate(f.limited);assert.equal((await closed)[0],1008);
+  const closed=once(ws,'close');await f.rotate(f.limited);assert.equal((await closed)[0],1008);
 });
 test('a key revoked while uploading cannot start an upstream request',async t=>{
   const f=await fixture(t),body='{"model":"chat-fast"}';
-  const received=once(f.server,'request');
+  const received=f.server?once(f.server,'request'):(async()=>{for(let i=0;i<100;i++){if((await f.gateway.metrics()).metrics.active>0)return;await new Promise(r=>setTimeout(r,10));}throw Error('Upload not received')})();
   let request;
   const result=new Promise((resolve,reject)=>{
     request=http.request(f.base+'/v1/chat/completions',{method:'POST',headers:{...f.auth(),'content-length':Buffer.byteLength(body)}},response=>{response.resume();response.on('end',()=>resolve(response.statusCode));});request.on('error',reject);
   });
   request.write(body.slice(0,10));await received;
-  f.update(c=>{c.accessKeys.find(key=>key.id===f.all.id).enabled=false;});request.end(body.slice(10));
+  await f.update(c=>{c.accessKeys.find(key=>key.id===f.all.id).enabled=false;});request.end(body.slice(10));
   assert.equal(await result,401);assert.equal(f.seen.length,0);
 });
 test('duplicate and escaped JSON model selectors cannot bypass key restrictions',async t=>{

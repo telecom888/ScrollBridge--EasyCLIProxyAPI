@@ -86,8 +86,12 @@ func run() error {
 	check := flag.Bool("check", false, "validate configuration and exit")
 	keygen := flag.Bool("keygen", false, "print one new consumer key and its SHA-256; intentionally visible once")
 	admin := flag.String("admin", "", "optional separate loopback metrics listener; requires SCROLLBRIDGE_ADMIN_KEY")
+	desktop := flag.Bool("desktop", false, "private stdin/stdout control owned by Electron")
 	flag.Parse()
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stderr, nil)))
+	if *desktop {
+		return runDesktop(*state)
+	}
 	if *keygen {
 		b := make([]byte, 32)
 		if _, err := rand.Read(b); err != nil {

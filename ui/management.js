@@ -105,7 +105,6 @@ function confirmKey(action,id) {
 }
 function initManagement() {
   const title=$('page-title'),heading=document.createElement('div');heading.className='page-heading';title.before(heading);heading.append(title);
-  const description=document.createElement('p');description.id='key-page-description';description.textContent='管理客户端的访问权限';description.hidden=true;heading.append(description);
   const create=document.createElement('button');create.id='new-key';create.className='primary';create.hidden=true;create.innerHTML=icon('plus')+'新建密钥';document.querySelector('.header-actions').prepend(create);
   const accessLabel=document.createElement('label');accessLabel.className='access-key-picker';accessLabel.innerHTML='访问密钥<select id="access-key" aria-label="调用示例密钥"></select>';
   document.querySelector('.key-row').before(accessLabel);
