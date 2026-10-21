@@ -42,7 +42,7 @@ const {once}=require('node:events');
     // Copy on demand: plaintext is absent from snapshots and the disk file.
     originalClipboard=await app.evaluate(({clipboard})=>clipboard.readText());
     await page.locator(`[data-key-copy="${phoneId}"]`).click();await page.waitForFunction(()=>!pending);
-    const secret=await app.evaluate(({clipboard})=>clipboard.readText());assert.match(secret,/^sb_/);assert.ok(!JSON.stringify(await page.evaluate(()=>snapshot)).includes(secret));assert.ok(!fs.readFileSync(path.join(profile,'settings.json'),'utf8').includes(secret));
+    const secret=await app.evaluate(({clipboard})=>clipboard.readText());assert.match(secret,/^sb_/);assert.ok(!JSON.stringify(await page.evaluate(()=>snapshot)).includes(secret));assert.ok(!fs.readFileSync(path.join(profile,'settings.v2.json'),'utf8').includes(secret));
     await app.evaluate(({clipboard},text)=>clipboard.writeText(text),originalClipboard);originalClipboard=undefined;
     await page.locator(`[data-key-more="${phoneId}"]`).click();assert.equal(await page.locator('#key-menu').isVisible(),true);await page.keyboard.press('Escape');assert.equal(await page.locator('#key-menu').isVisible(),false);
     await page.locator(`[data-key-more="${phoneId}"]`).click();await page.click('#menu-reset-key');await page.click('#key-confirm');await page.waitForFunction(()=>!pending && !document.querySelector('#key-confirm-dialog').open);

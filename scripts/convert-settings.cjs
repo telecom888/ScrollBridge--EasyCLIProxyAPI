@@ -1,15 +1,9 @@
 // One-time operator tool. Never imported by the desktop startup path.
 const fs=require('node:fs');
 const path=require('node:path');
-const {validateConfig,validateAccessKey}=require('../lib/config.cjs');
-const {newKey,syncModels}=require('../lib/policy.cjs');
-function convert(data,secrets) {
-  if(data.version!==1 || !data.config)throw new Error('源文件不是旧版配置');
-  validateAccessKey(secrets.accessKey);
-  const key=newKey();
-  const config=validateConfig(syncModels({...data.config,accessKeys:[key],diagnosticKeyId:key.id,modelRules:[]},data.config.knownModels || []));
-  return{config,secrets:{upstreamKey:secrets.upstreamKey || '',tunnelToken:secrets.tunnelToken || '',keyValues:{[key.id]:secrets.accessKey}}};
-}
+const {validateConfig}=require('../lib/config.cjs');
+const {syncModels}=require('../lib/policy.cjs');
+const {convert}=require('../lib/migrate-settings.cjs');
 if(require.main===module || process.versions.electron && process.type==='browser'){
   const {app,safeStorage}=require('electron');
   const {Store}=require('../lib/store.cjs');

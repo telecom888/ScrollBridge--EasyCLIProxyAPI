@@ -24,7 +24,7 @@ const assert = require('node:assert/strict');
     await window.click('[data-tab=google]');assert.match(await window.locator('#example-code').innerText(),/streamGenerateContent/);
     await window.click('#copy-key');await window.waitForTimeout(200);const key = await app.evaluate(({clipboard})=>clipboard.readText());testKey=key;assert.match(key,/^sb_/);
     const state=await window.evaluate(()=>window.bridge.invoke('snapshot'));assert.ok(!JSON.stringify(state).includes(key));
-    const disk=fs.readFileSync(path.join(profile,'settings.json'),'utf8');assert.ok(!disk.includes(key));
+    const disk=fs.readFileSync(path.join(profile,'settings.v2.json'),'utf8');assert.ok(!disk.includes(key));
     await window.click('#rotate-key');assert.ok(await window.locator('#page-keys').isVisible());
     await window.click('[data-page=records]');assert.match(await window.locator('#requests-table').innerText(),/暂无请求/);
     await window.click('[data-page=connection]');

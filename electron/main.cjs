@@ -161,12 +161,12 @@ app.whenReady().then(async () => {
       fs.writeFileSync(reportPath, JSON.stringify({
         time: new Date().toISOString(), appVersion: app.getVersion(),
         executable: process.env.PORTABLE_EXECUTABLE_FILE || process.execPath,
-        configPath: path.join(profileDirectory, 'settings.json'),
+        configPath: store.filename, legacyConfigPath: path.join(profileDirectory,'settings.json'),
         expectedFormat: 2, configShape: e.configShape || null
       }, null, 2), {mode:0o600});
       reportSaved = true;
     } catch {}
-    dialog.showErrorBox('卷桥', `${e.message}\n\n程序版本：${app.getVersion()}\n配置位置：${path.join(profileDirectory, 'settings.json')}${reportSaved ? '\n错误记录：' + reportPath : ''}\n已有配置未被覆盖。`);
+    dialog.showErrorBox('卷桥', `${e.message}\n\n程序版本：${app.getVersion()}\n配置位置：${store.filename}${reportSaved ? '\n错误记录：' + reportPath : ''}\n已有配置未被覆盖。`);
     closing = true; app.quit(); return;
   }
   // Delete a token file left by an interrupted previous process.
