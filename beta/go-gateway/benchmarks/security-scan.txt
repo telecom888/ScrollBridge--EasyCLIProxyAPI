@@ -1,0 +1,16 @@
+Fetching vulnerabilities from the database...
+
+Checking the code against the vulnerabilities...
+
+The package pattern matched the following root package:
+  scrollbridge/beta/gateway
+Govulncheck scanned the following 7 modules and the go1.26.10 standard library:
+  scrollbridge/beta/gateway
+  github.com/cespare/xxhash/v2@v2.3.0
+  github.com/dgryski/go-rendezvous@v0.0.0-20200823014737-9f7001d12a5f
+  github.com/gofrs/flock@v0.13.0
+  github.com/redis/go-redis/v9@v9.18.0
+  go.uber.org/atomic@v1.11.0
+  golang.org/x/sys@v0.44.0
+
+No vulnerabilities found.

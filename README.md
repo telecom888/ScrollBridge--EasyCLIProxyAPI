@@ -142,3 +142,7 @@ UI 先用内置 ImageGen 生成参考，再实现原生代码界面。参考图�
 - [Lobe Icons](https://github.com/lobehub/lobe-icons)，见 `THIRD_PARTY_NOTICES.md`。
 
 项目使用 MIT 许可证。没有捆绑原 CLIProxyAPI 或 EasyCLIProxyAPI 可执行文件。
+
+## Go 网关 beta
+
+独立分支 `beta/go-gateway` 提供 Go 网关实验版本，包含共享缓冲预算、流式取消、供给冷却、可选 Redis 配置与额度、可调整输入/输出/缓存价格。它尚未替代桌面版网关。运行方式与接口差异见 [beta 说明](beta/go-gateway/README.md)，同条件进程测试见 [对比报告](beta/go-gateway/REPORT.md)。

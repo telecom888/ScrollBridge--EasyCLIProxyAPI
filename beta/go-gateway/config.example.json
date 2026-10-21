@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "listen": "127.0.0.1:18453",
+  "limits": {
+    "concurrent": 64,
+    "bodyBytes": 33554432,
+    "memoryBytes": 268435456,
+    "eventBytes": 262144,
+    "responseBytes": 67108864,
+    "outputBytes": 67108864,
+    "requestSeconds": 600,
+    "writeSeconds": 30
+  },
+  "images": false,
+  "billing": {
+    "enabled": false,
+    "currency": "USD",
+    "readUsagePrice": false,
+    "usageCostPointer": "/usage/cost",
+    "rates": {
+      "inputPerMillion": "2",
+      "outputPerMillion": "8",
+      "cachedInputPerMillion": "0.5"
+    }
+  },
+  "keys": [
+    {
+      "id": "consumer-1",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "enabled": false,
+      "mode": "selected",
+      "allowed": ["exposure-chat"],
+      "concurrent": 8,
+      "outputTokens": 0,
+      "maxOutputTokens": 4096
+    }
+  ],
+  "models": [
+    {
+      "id": "model-chat",
+      "actual": "replace-with-an-actual-model-id",
+      "aliases": ["chat", "assistant"],
+      "exposureIds": {
+        "replace-with-an-actual-model-id": "exposure-original",
+        "chat": "exposure-chat",
+        "assistant": "exposure-assistant"
+      },
+      "keepOriginal": false,
+      "enabled": true
+    }
+  ],
+  "upstreams": [
+    {
+      "id": "local-proxy",
+      "url": "http://127.0.0.1:8317",
+      "keyEnv": "SCROLLBRIDGE_UPSTREAM_KEY"
+    }
+  ]
+}

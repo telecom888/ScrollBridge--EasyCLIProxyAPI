@@ -6,3 +6,7 @@ vendor/*.exe
 .env*
 config.json
 secrets*
+.beta-state/
+.beta-node-*/
+beta/go-gateway/config.beta.json
+beta/go-gateway/*.exe
