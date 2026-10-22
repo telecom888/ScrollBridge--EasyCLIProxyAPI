@@ -55,6 +55,7 @@ async function probe(url, key, isPublic = false) {
   return isPublic ? { ok: true, message: '域名 HTTPS 和网关鉴权正常' } : { ok: true, message: `本地服务正常，提供 ${data.data.length} 个模型`, models: data.data.map(m => m.id).slice(0, 80) };
 }
 async function save(payload = {}) {
+  if(payload.config?.updateSource!==undefined)throw new Error('请通过更新来源选项修改');
   if(['accessKeys','modelRules'].some(field=>payload.config?.[field]!==undefined) || payload.accessKey!==undefined)throw new Error('请通过密钥或模型页面编辑');
   const next = validateConfig({ ...config, ...payload.config });
   if ((gateway || tunnel) && (payload.clearUpstreamKey || ['upstream', 'port', 'hostname', 'protocol'].some(k => next[k] !== config[k]) || ['upstreamKey', 'tunnelToken'].some(k => payload[k]))) throw new Error('请先停止连接再保存连接配置');
@@ -74,6 +75,11 @@ async function save(payload = {}) {
   await synchronizeGateway();publish(); return view();
 }
 const actions = {
+  setUpdateSource: payload => {
+    const next=validateConfig({...config,updateSource:payload?.source});
+    if(updater.isActive())throw Error('请等待当前更新操作完成');
+    store.save(next,secrets);config=next;updater.resetSource();return updater.snapshot();
+  },
   checkUpdates: () => updater.check(),
   downloadUpdate: () => {void updater.download().catch(e=>log(e.message));return updater.snapshot();},
   installUpdate: () => {void updater.apply().catch(e=>log(e.message));return updater.snapshot();},
@@ -211,7 +217,7 @@ app.whenReady().then(async () => {
   }
   if(config.launchAtLogin)app.setLoginItemSettings({openAtLogin:true,path:process.env.PORTABLE_EXECUTABLE_FILE || app.getPath('exe')});
   const executable=process.env.PORTABLE_EXECUTABLE_FILE || app.getPath('exe');
-  updater=createUpdater({getVersion:()=>app.getVersion().replace(/-node$/,''),kind:distribution({portableFile:process.env.PORTABLE_EXECUTABLE_FILE,executable}),directory:path.join(profileDirectory,'updates'),enabled:app.isPackaged && gatewayEngine==='go',fetcher:(url,options)=>githubFetch(url,options,(...args)=>electronFetch(net,...args)),onChange:publish,install:async payload=>{
+  updater=createUpdater({getSource:()=>config.updateSource,getVersion:()=>app.getVersion().replace(/-node$/,''),kind:distribution({portableFile:process.env.PORTABLE_EXECUTABLE_FILE,executable}),directory:path.join(profileDirectory,'updates'),enabled:app.isPackaged && gatewayEngine==='go',fetcher:(url,options)=>githubFetch(url,options,(...args)=>electronFetch(net,...args)),onChange:publish,install:async payload=>{
     if(busy || closing)return false;
     const unsaved=await window.webContents.executeJavaScript('Boolean(dirty || keyDirty || billingDirty || refreshIntervalDirty)');
     if(unsaved)return false;

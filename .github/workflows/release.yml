@@ -35,6 +35,8 @@ jobs:
           $version = node -p "require('./package.json').version"
           if ($env:RELEASE_TAG -ne "v$version") { throw 'Tag must match package.json version' }
       - run: npm run dist
+        env:
+          SCROLLBRIDGE_UPDATE_SIGNING_KEY: ${{ secrets.SCROLLBRIDGE_UPDATE_SIGNING_KEY }}
       - name: Verify Windows update replacement and rollback
         run: node scripts/update-worker-smoke.cjs
       - name: Upload three packages and update metadata
@@ -47,7 +49,7 @@ jobs:
           $version = node -p "require('./package.json').version"
           gh release view $env:RELEASE_TAG
           if ($LASTEXITCODE -ne 0) {
-            gh release create $env:RELEASE_TAG --verify-tag --generate-notes
+            gh release create $env:RELEASE_TAG --verify-tag --notes-file "docs/$version.md"
             if ($LASTEXITCODE -ne 0) { throw 'Release creation failed' }
           }
           gh release upload $env:RELEASE_TAG "release/ScrollBridge-$version-win-x64.zip" "release/ScrollBridge-Setup-$version-win-x64.exe" "release/ScrollBridge-$version-win-x64.exe" "release/SHA256SUMS-$version.txt" "release/scrollbridge-update.json" --clobber

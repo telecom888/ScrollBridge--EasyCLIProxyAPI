@@ -223,6 +223,16 @@ $('model-refresh-form').onsubmit=e=>{e.preventDefault();task(e.submitter,async()
 $('model-search').oninput = renderModelCatalog;
 $('refresh-models').onclick = async () => { await task($('refresh-models'), async () => { if (dirty) await saveForm(); render(await call('refreshModels')); toast('模型列表已更新'); }); renderModelCatalog(); };
 $('clear-records').onclick = () => task(null, () => call('clearLogs'));
+let displayedRelease='',expandedRelease='';
+function renderReleaseNotes(text){
+ const body=$('update-notes-body');body.replaceChildren();let list=null;
+ for(const line of (text || '该版本未提供更新日志。').split(/\r?\n/)){
+  const bullet=/^\s*([-*]|\d+\.)\s+(.+)$/.exec(line),heading=/^#{1,6}\s+(.+)$/.exec(line);
+  if(heading && [snapshot.update?.detectedVersion,'v'+snapshot.update?.detectedVersion].includes(heading[1]))continue;
+  if(bullet){const tag=bullet[1].endsWith('.')?'ol':'ul';if(!list || list.tagName.toLowerCase()!==tag){list=document.createElement(tag);body.append(list);}const item=document.createElement('li');item.textContent=bullet[2];list.append(item);}
+  else {list=null;if(!line.trim())continue;const node=document.createElement(heading?'h3':'p');node.textContent=heading?heading[1]:line;body.append(node);}
+ }
+}
 function renderUpdates(){
  const u=snapshot.update || {},active=['checking','downloading','installing'].includes(u.phase);
  const detected=u.detectedVersion || u.availableVersion;
@@ -233,9 +243,26 @@ function renderUpdates(){
  $('download-update').hidden=!u.canDownload;
  $('download-update').disabled=active;
  $('download-update').textContent=u.phase==='ready'?'立即更新':'下载并更新';
+ if(u.phase==='downloading'){$('download-update').hidden=false;$('download-update').textContent='正在下载';}
+ $('update-source').value=u.source || snapshot.config.updateSource || 'github';
+ $('update-source').disabled=active || u.phase==='ready';
+ const release=detected?`${u.source}:${detected}`:'';
+ $('update-notes').hidden=!release;
+ if(release!==displayedRelease){$('update-notes').open=!!u.availableVersion;displayedRelease=release;}
+ if(u.availableVersion && release!==expandedRelease){$('update-notes').open=true;expandedRelease=release;}
+ // A later verified manifest may add notes after the version is first known.
+ if($('update-notes-body').dataset.notes!==(u.releaseNotes || '') || !$('update-notes-body').childElementCount){renderReleaseNotes(u.releaseNotes);$('update-notes-body').dataset.notes=u.releaseNotes || '';}
+ $('update-notes-version').textContent=detected || '';
+ const published=new Date(u.publishedAt);
+ $('update-published').hidden=!u.publishedAt || !Number.isFinite(published.getTime());
+ $('update-published').textContent=$('update-published').hidden?'':'发布时间：'+published.toLocaleString('zh-CN',{year:'numeric',month:'long',day:'numeric'});
  $('update-progress-row').hidden=u.phase!=='downloading';
  $('update-progress').value=u.progress || 0;$('update-percent').textContent=(u.progress || 0)+'%';
+ const mb=value=>((value || 0)/1024/1024).toFixed(1)+' MB';
+ $('update-bytes').textContent='已下载 '+mb(u.downloadedBytes)+' / '+mb(u.totalBytes);
+ $('update-speed').textContent='下载速度 '+mb(u.bytesPerSecond)+'/s';
 }
+$('update-source').onchange=()=>task($('update-source'),async()=>{try{await call('setUpdateSource',{source:$('update-source').value});}finally{render(await call('snapshot'));}});
 $('check-update').onclick=()=>task($('check-update'),async()=>{await call('checkUpdates');});
 $('download-update').onclick=()=>task($('download-update'),async()=>{if(dirty || keyDirty || billingDirty || refreshIntervalDirty){toast('请先保存未完成的修改',true);return;}await call(snapshot.update?.phase==='ready'?'installUpdate':'downloadUpdate');});
 initManagement();

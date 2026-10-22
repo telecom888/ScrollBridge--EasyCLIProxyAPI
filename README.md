@@ -150,6 +150,14 @@ ZIP 解压后运行文件夹内的 `卷桥.exe`，需保留同目录的其他运
 
 当前为未签名的本地构建，未配置代码签名证书。分发前可为构建增加 Windows 签名。
 
+## 更新分发
+
+设置中的更新区域支持 GitHub 与 gh-proxy 镜像，所选来源用于版本检测、更新日志和包下载。仅请求本仓库的公开更新资源，不向镜像发送账户凭据。下载时保留现有系统网络设置，不修改路由或虚拟网卡。
+
+发布说明维护在 `docs/<版本>.md`，打包时写入 `scrollbridge-update.json`。清单包含三个包的大小和 SHA-256，并使用 Ed25519 签名；桌面内置 `lib/update-public-key.pem` 验证签名后才允许下载新版。更新清单签名与 Windows 可执行文件代码签名相互独立。
+
+GitHub Actions 使用仓库 Secret `SCROLLBRIDGE_UPDATE_SIGNING_KEY` 签名。Windows 本地构建可使用同名环境变量，或读取 `%LOCALAPPDATA%\ScrollBridge-Release\update-signing-private.pem`。私钥不进入 Git 或安装包；发布维护者应在仓库之外备份私钥，不能在每次构建时重新生成，否则已安装的程序无法验证后续版本。缺少私钥或公私钥不匹配时，打包会报错而不会生成可发布的无签名清单。
+
 ## 参考与许可
 
 UI 先用内置 ImageGen 生成参考，再实现原生代码界面。参考图、完整提示词与实际截图位于 `design/`。三家公司标识来自 GitHub Lobe Icons，保留 MIT 许可证；本项目独立于三家公司。
