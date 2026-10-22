@@ -94,3 +94,22 @@ test('mirror fetch is repository-scoped, strips credentials and refuses external
 test('a current release still exposes its release notes without a package download',async t=>{
  const f=fixture(t,{currentVersion:'0.3.14',fetcher:async()=>Response.json({tag_name:'v0.3.14',body:'Already current notes',published_at:'2026-10-22T09:00:00Z'})});await f.updater.check();assert.equal(f.updater.snapshot().phase,'latest');assert.equal(f.updater.snapshot().releaseNotes,'Already current notes');assert.equal(f.installs.length,0);
 });
+
+test('GitCode uses fixed anonymous endpoints and signed sizes even without size metadata',async t=>{
+ const {sourceUrl,GITCODE_API}=require('../lib/updates.cjs');
+ const f=fixture(t,{getSource:()=> 'gitcode',deferInstall:true,fetcher:async url=>{
+  assert.ok(url.startsWith(GITCODE_API+'/'));
+  if(url.endsWith('/latest'))return Response.json({...f.release,assets:f.release.assets.map(a=>({name:a.name,browser_download_url:'https://untrusted.example/ignored'}))});
+  if(url.endsWith('/scrollbridge-update.json/download'))return Response.json(f.manifest);
+  assert.ok(url.endsWith('/'+f.manifest.assets.zip.name+'/download'));return new Response(f.bytes);
+ }});
+ await f.updater.check();assert.equal(f.updater.snapshot().phase,'available');await f.updater.download();assert.equal(f.installs.length,1);assert.match(f.updater.snapshot().releaseUrl,/gitcode.com/);
+ for(const address of ['https://evil.example/x',`https://github.com/${REPOSITORY}/releases/download/v1.0.0/a.zip?secret=1`])assert.throws(()=>sourceUrl(address,'gitcode'));
+});
+
+test('GitCode empty release is actionable and download redirects cannot enter local services',async t=>{
+ const {GITCODE_API}=require('../lib/updates.cjs');
+ const f=fixture(t,{getSource:()=> 'gitcode',fetcher:async()=>Response.json({error_message:'未找到 release'},{status:400})});
+ await f.updater.check();assert.equal(f.updater.snapshot().phase,'latest');assert.equal(f.updater.snapshot().canDownload,false);assert.match(f.updater.snapshot().message,/切换/);
+ let calls=0;await assert.rejects(githubFetch(GITCODE_API+'/latest',{headers:{Authorization:'secret',Cookie:'secret'}},async(_,options)=>{calls++;assert.equal(options.headers.Authorization,undefined);assert.equal(options.headers.Cookie,undefined);return new Response(null,{status:302,headers:{location:'https://127.0.0.1/private'}});}),/不受信任/);assert.equal(calls,1);
+});

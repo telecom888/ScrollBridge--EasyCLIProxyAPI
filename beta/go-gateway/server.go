@@ -305,6 +305,9 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	list, pathModel, ok := route(r, s.cfg.Images)
+	if r.Method == "POST" && r.URL.Path == "/v1/audio/speech" && r.URL.RawPath == "" {
+		ok = s.cfg.Speech
+	}
 	if !ok {
 		g.rejected.Add(1)
 		if strings.HasPrefix(r.URL.Path, "/v1/images/") {
@@ -460,6 +463,14 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	actual = e.Actual
+	if r.Method == "POST" && speechRequest(r.URL.Path, actual, m) && !s.cfg.Speech {
+		reject(404, "Speech endpoints are disabled")
+		return
+	}
+	if r.Method == "POST" && speechRequest(r.URL.Path, actual, m) && k.OutputTokens > 0 {
+		reject(400, "text token quotas do not support speech synthesis")
+		return
+	}
 	record["model"] = requested
 	record["actualModel"] = actual
 	billing = e.Billing
@@ -534,6 +545,25 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	upID = supply.ID
+	if r.URL.Path == "/v1/audio/speech" {
+		dispatched = true
+		speechStatus, started, speechErr := g.serveSpeech(ctx, s, supply, w, m, e, &u)
+		status = speechStatus
+		if speechStatus < 500 {
+			done(speechStatus, nil, nil)
+		} else {
+			done(speechStatus, nil, speechErr)
+		}
+		if speechErr != nil {
+			result = "speech_failed"
+			record["result"] = result
+			if started {
+				panic(http.ErrAbortHandler)
+			}
+			reject(speechStatus, speechErr.Error())
+		}
+		return
+	}
 	if s.cfg.Images && s.cfg.GeminiImages && strings.HasPrefix(r.URL.Path, "/v1/images/") && isGeminiImage(actual) {
 		dispatched = true
 		data, imageStatus, imageUsage, imageErr := g.generateImages(ctx, s, supply, m, files, r.URL.Path == "/v1/images/edits")
@@ -630,6 +660,23 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 	responseType, _, _ := mime.ParseMediaType(response.Header.Get("Content-Type"))
+	if status < 400 && strings.HasPrefix(responseType, "audio/") {
+		if !s.cfg.Speech {
+			reject(403, "speech output is disabled")
+			return
+		}
+		var audioStarted bool
+		if audioStarted, err = g.copyAudio(w, response.Body, response.Header, s); err != nil {
+			result = "audio_interrupted"
+			if !audioStarted {
+				reject(502, "invalid upstream audio")
+				return
+			}
+			cancel()
+			panic(http.ErrAbortHandler)
+		}
+		return
+	}
 	if actual == requested && !billing.Enabled && reservation == 0 && r.Method != "GET" && responseType != "text/event-stream" && response.Header.Get("Content-Encoding") != "" {
 		b, release, e := g.read(response.Body, s.cfg.Limits.ResponseBytes, s.cfg.Limits.MemoryBytes)
 		if e != nil {

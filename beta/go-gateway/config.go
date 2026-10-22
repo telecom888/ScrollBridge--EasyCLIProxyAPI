@@ -21,6 +21,7 @@ type Config struct {
 	Listen       string     `json:"listen"`
 	Limits       Limits     `json:"limits"`
 	Images       bool       `json:"images"`
+	Speech       bool       `json:"speech"`
 	GeminiImages bool       `json:"geminiImageCompatibility"`
 	Billing      Billing    `json:"billing"`
 	Keys         []Key      `json:"keys"`

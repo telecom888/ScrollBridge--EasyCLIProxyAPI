@@ -41,6 +41,9 @@ const assert = require('node:assert/strict');
     const saved = await page.evaluate(() => window.bridge.invoke('snapshot'));
     assert.equal(saved.config.protocol, 'http2');
     assert.equal(saved.config.launchAtLogin, true);
+    assert.equal(await page.locator('#speechEnabled').evaluate(el=>el.closest('.setting-row').previousElementSibling.querySelector('strong').textContent),'Gemini 图像生成兼容');
+    assert.equal(saved.config.speechEnabled,false);await page.check('#speechEnabled');await page.waitForFunction(()=>!pending && snapshot.config.speechEnabled);
+    assert.equal(new (require('../lib/store.cjs').Store)(profile).load().config.speechEnabled,true);
     assert.ok(await page.locator('[data-locked-for="transport"]').isHidden());
     console.log('Running controls show reminders for pointer and keyboard; stopped controls remain editable and persist');
   } finally { await app.close(); }

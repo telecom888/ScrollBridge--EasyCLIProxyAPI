@@ -46,6 +46,9 @@ func (g *gateway) serveWebSocket(w http.ResponseWriter, r *http.Request, s *snap
 	if current != "" {
 		var code int
 		selected, code = s.resolve(k, current)
+		if code == 0 && !s.cfg.Speech && speechRequest(r.URL.Path, selected.Actual, nil) {
+			code = 404
+		}
 		if code != 0 {
 			problem(w, code, "model unavailable")
 			return
@@ -289,6 +292,9 @@ func (g *gateway) serveWebSocket(w http.ResponseWriter, r *http.Request, s *snap
 				requested, _ = nestedName.(string)
 			}
 			entry, code := policy.resolve(k, requested)
+			if code == 0 && !policy.cfg.Speech && (speechRequest(r.URL.Path, entry.Actual, body) || speechRequest(r.URL.Path, entry.Actual, nested)) {
+				code = 404
+			}
 			if requested == "" {
 				code = 400
 			}

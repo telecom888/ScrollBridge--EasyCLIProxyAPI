@@ -214,7 +214,7 @@ func streamSSEBudget(dst *deadlineWriter, src io.Reader, e entry, capBytes int, 
 				observeCost(v, u, e.Billing.UsageCostPointer)
 			}
 			if m, ok := v.(map[string]any); ok {
-				if kind, _ := m["type"].(string); kind == "message_stop" || kind == "response.completed" {
+				if kind, _ := m["type"].(string); kind == "message_stop" || kind == "response.completed" || kind == "speech.audio.done" {
 					u.Complete = true
 				}
 				if a, ok := m["candidates"].([]any); ok {

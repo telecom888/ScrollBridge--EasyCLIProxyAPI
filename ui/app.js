@@ -63,6 +63,7 @@ function render(s) {
   $('route-upstream').textContent = s.config.upstream.replace(/^https?:\/\//,''); $('route-host').textContent = s.config.hostname || '尚未配置'; $('public-base').textContent = s.config.hostname ? `https://${s.config.hostname}` : '请先配置域名'; $('origin-service').textContent = `http://127.0.0.1:${s.config.port}`;
   $('imagesEnabled').checked = s.config.imagesEnabled;
   $('geminiImageCompatibility').checked = s.config.geminiImageCompatibility;
+  $('speechEnabled').checked = s.config.speechEnabled;
   renderModelRefreshSettings();renderManagement();renderDiagnosticModels();renderUpdates();
   $('version').textContent = `v${s.version.replace(/-beta(?:\.\d+)?$/,' beta')}`; renderExample(); renderRecords(); renderDiagnostics(); renderModelCatalog();
 }
@@ -106,6 +107,7 @@ document.querySelectorAll('[data-theme]').forEach(el => el.onclick = () => task(
 $('transport').onchange = () => task(null, () => changeSetting({protocol:$('transport').value})); $('launchAtLogin').onchange = () => task(null, async () => { try { await changeSetting({launchAtLogin:$('launchAtLogin').checked}); } finally { render(await call('snapshot')); } });
 $('imagesEnabled').onchange = () => task($('imagesEnabled'), async () => { try { await changeSetting({imagesEnabled:$('imagesEnabled').checked}); } finally { render(await call('snapshot')); } });
 $('geminiImageCompatibility').onchange = () => task($('geminiImageCompatibility'), async () => { try { await changeSetting({geminiImageCompatibility:$('geminiImageCompatibility').checked}); } finally { render(await call('snapshot')); } });
+$('speechEnabled').onchange = () => task($('speechEnabled'), async () => { try { await changeSetting({speechEnabled:$('speechEnabled').checked}); } finally { render(await call('snapshot')); } });
 $('diagnostic-model').onchange = () => task($('diagnostic-model'), async () => { try { await changeSetting({diagnosticModel:$('diagnostic-model').value}); } finally { render(await call('snapshot')); } });
 $('refresh-diagnostic-models').onclick = () => task($('refresh-diagnostic-models'), async () => { if(dirty) await saveForm(); render(await call('refreshModels')); toast('模型列表已更新'); });
 function renderDiagnosticModels() {
@@ -246,7 +248,7 @@ function renderUpdates(){
  $('download-update').disabled=active;
  $('download-update').textContent=u.phase==='ready'?'立即更新':'下载并更新';
  if(u.phase==='downloading'){$('download-update').hidden=false;$('download-update').textContent='正在下载';}
- $('update-source').value=u.source || snapshot.config.updateSource || 'github';
+ $('update-source').value=u.source || snapshot.config.updateSource || 'gitcode';
  $('update-source').disabled=active || u.phase==='ready';
  const release=detected?`${u.source}:${detected}`:'';
  $('update-notes').hidden=!release;
