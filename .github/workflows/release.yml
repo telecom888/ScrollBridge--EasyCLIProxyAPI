@@ -4,10 +4,15 @@ on:
     tags: ['v*']
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing version tag to build
+        required: true
 permissions:
   contents: write
 concurrency:
-  group: release-${{ github.event.release.tag_name || github.ref_name }}
+  group: windows-release-${{ inputs.tag || github.event.release.tag_name || github.ref_name }}
   cancel-in-progress: false
 jobs:
   windows:
@@ -15,7 +20,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.release.tag_name || github.ref_name }}
+          ref: ${{ inputs.tag || github.event.release.tag_name || github.ref_name }}
           persist-credentials: false
       - uses: actions/setup-node@v4
         with:
@@ -30,7 +35,7 @@ jobs:
       - name: Validate release tag
         shell: pwsh
         env:
-          RELEASE_TAG: ${{ github.event.release.tag_name || github.ref_name }}
+          RELEASE_TAG: ${{ inputs.tag || github.event.release.tag_name || github.ref_name }}
         run: |
           $version = node -p "require('./package.json').version"
           if ($env:RELEASE_TAG -ne "v$version") { throw 'Tag must match package.json version' }
@@ -48,7 +53,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          RELEASE_TAG: ${{ github.event.release.tag_name || github.ref_name }}
+          RELEASE_TAG: ${{ inputs.tag || github.event.release.tag_name || github.ref_name }}
         run: |
           $version = node -p "require('./package.json').version"
           gh release view $env:RELEASE_TAG
