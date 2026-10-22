@@ -27,6 +27,7 @@ const builder=require('electron-builder');
   // per-launch $PLUGINSDIR. false follows the shared build-ID branch despite
   // the type documentation claiming otherwise. See portable-duplicate-smoke.
   const config={...JSON.parse(JSON.stringify(require('../package.json').build)),directories:{output:buildDir},afterPack:'scripts/packaging-hooks.cjs',extraMetadata:{gatewayEngine:engine,version},extraResources:[{from:'vendor',to:'vendor',filter:engine==='go'?['cloudflared.exe','scrollbridge-gateway.exe']:['cloudflared.exe']}],artifactName:`ScrollBridge-${version}-win-x64.zip`,portable:{artifactName:`ScrollBridge-${version}-win-x64.exe`,unpackDirName:true},nsis:{oneClick:false,perMachine:false,allowElevation:false,allowToChangeInstallationDirectory:true,runAfterFinish:false,deleteAppDataOnUninstall:false,include:'design/installer.nsh',artifactName:`ScrollBridge-Setup-${version}-win-x64.exe`}};
+  if(engine==='go')config.files.push('!lib/gateway.cjs','!lib/gemini-images.cjs','!lib/model-response.cjs','!node_modules/busboy/**/*','!node_modules/streamsearch/**/*','!node_modules/ws/**/*');
   const configFile=buildDir+'.json';fs.writeFileSync(configFile,JSON.stringify(config,null,2));
   // Publishing is owned by the release workflow after all packages and the
   // checksum manifest exist. Never let a CI tag enable builder's publisher.

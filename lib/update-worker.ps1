@@ -42,7 +42,8 @@ function StartApplication([bool]$updated) {
   if ($updated) { $env:SCROLLBRIDGE_UPDATE_ID = $job.id } else { Remove-Item Env:SCROLLBRIDGE_UPDATE_ID -ErrorAction SilentlyContinue }
   # Preserve the profile used by the old process, also for isolated tests.
   $env:SCROLLBRIDGE_TEST_PROFILE = $job.profileDirectory
-  $script:started = Start-Process -FilePath $job.executable -WorkingDirectory $target -WindowStyle Hidden -PassThru
+  # The helper stays hidden; the restarted desktop is an interactive window.
+  $script:started = Start-Process -FilePath $job.executable -WorkingDirectory $target -WindowStyle Normal -PassThru
 }
 function WriteResult([string]$status,[string]$message) {
   @{status=$status;message=$message;version=$job.version;time=[DateTime]::UtcNow.ToString('o')} | ConvertTo-Json -Compress | Set-Content -LiteralPath (Join-Path $work 'result.json') -Encoding UTF8

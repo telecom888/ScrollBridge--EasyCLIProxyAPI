@@ -20,8 +20,22 @@ async function run(engine){
   await page.click('[data-page=keys]');await page.locator('[data-key-copy]').first().click();await page.waitForFunction(()=>!pending);const secret=await app.evaluate(({clipboard})=>clipboard.readText());
   await page.evaluate(async()=>{await window.bridge.invoke('start');render(await window.bridge.invoke('snapshot'))});await page.waitForFunction(()=>snapshot.status==='connected'&&snapshot.gatewayRunning);
   assert.equal(await app.evaluate(()=>global.testGoChildren.length),engine==='go'?1:0);
+  await page.waitForTimeout(150); // Drain the initial tunnel log batch before counting request events.
+  await page.evaluate(()=>{globalThis.recordEvents=0;globalThis.fullEvents=0;globalThis.managementRenders=0;window.bridge.onRecords(data=>{if(Object.keys(data).some(k=>!['records','logs'].includes(k)))throw Error('Unexpected log payload');recordEvents++;});window.bridge.onUpdate(()=>fullEvents++);const original=renderManagement;renderManagement=function(){managementRenders++;return original();};});
   const call=async(model='text-real')=>{const r=await fetch(`http://127.0.0.1:${gatewayPort}/v1/chat/completions`,{method:'POST',headers:{authorization:'Bearer '+secret,'content-type':'application/json'},body:JSON.stringify({model,messages:[{role:'user',content:'PRIVATE_PROMPT_MUST_NOT_BE_PERSISTED'}]})});const body=await r.json();return{status:r.status,body}};
   assert.equal((await call()).status,200);await page.waitForFunction(()=>snapshot.records.some(r=>r.model==='text-real'));
+  assert.deepEqual(await page.evaluate(()=>({logs:recordEvents>0,full:fullEvents,management:managementRenders})),{logs:true,full:0,management:0});
+  await page.click('[data-page=records]');assert.match(await page.locator('#requests-table').innerText(),/text-real/);
+  await page.click('[data-page=connection]');
+  await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].hide());
+  assert.equal((await call()).status,200);
+  await page.waitForTimeout(150);
+  assert.equal(await page.evaluate(()=>snapshot.records.length),1,'hidden desktop must not process request events');
+  await app.evaluate(({BrowserWindow})=>{const w=BrowserWindow.getAllWindows()[0];w.show();w.focus();});
+  await page.waitForFunction(()=>snapshot.records.length===2);
+  const identity=await page.evaluate(()=>snapshot.keys[0]);
+  await page.evaluate(key=>window.bridge.invoke('saveKey',{id:key.id,name:'重命名后'}),identity);
+  assert.equal((await call()).status,200);await page.waitForFunction(()=>snapshot.records[0].keyName==='重命名后');
   const ruleID=await page.evaluate(()=>snapshot.config.modelRules.find(r=>r.actual==='text-real').id);
   await page.evaluate(async id=>{await window.bridge.invoke('saveAliases',{id,aliases:[{name:'chat'}],keepOriginal:false});render(await window.bridge.invoke('snapshot'));},ruleID);
   assert.equal((await call('chat')).body.model,'chat');assert.equal((await call('text-real')).status,404);

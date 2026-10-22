@@ -25,8 +25,7 @@ const fs=require('node:fs'),path=require('node:path'),assert=require('node:asser
     await page.keyboard.press('End');
     await page.click('#cancel-key-edit');await page.click('#permission-clear');assert.equal(await page.locator('#key-all').isChecked(),false);
     await page.locator('#key-form button[type=submit]').click();await page.waitForFunction(()=>!pending && snapshot.keys[0].mode==='selected');
-    await page.click('[data-page=settings]');assert.equal(await page.locator('#billing-form').isVisible(),false);
-    assert.equal(await page.evaluate(()=>document.querySelector('#billing-form').previousElementSibling.querySelector('h2').textContent),'接口');
+    await page.click('[data-page=settings]');assert.equal(await page.locator('#billing-form').count(),0);
     await page.click('[data-page=keys]');await page.click('#close-key-editor');assert.equal(await page.locator('#key-editor-empty').isVisible(),true);
     await page.click('#new-key-empty');assert.equal(await page.locator('.key-model-panel').isVisible(),true);await page.fill('#key-name','新密钥');await page.locator('#key-form button[type=submit]').click();await page.waitForFunction(()=>!pending && snapshot.keys.length===2);
     await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].setSize(960,700));

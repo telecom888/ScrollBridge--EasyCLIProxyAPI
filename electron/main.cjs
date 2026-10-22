@@ -41,20 +41,11 @@ function publish() { if (window && !window.isDestroyed()) window.webContents.sen
 let recordPublishTimer;
 function publishRecords() {
   if(recordPublishTimer)return;
-  recordPublishTimer=setTimeout(()=>{recordPublishTimer=null;publish();},100);
+  recordPublishTimer=setTimeout(()=>{recordPublishTimer=null;if(window && !window.isDestroyed() && window.isVisible())window.webContents.send('records',{records,logs});},100);
 }
 function state(next, detail = '') { status = next; message = detail; publish(); }
-function log(line) { logs.unshift({ time: new Date().toISOString(), text: line }); logs = logs.slice(0, 100); publish(); }
+function log(line) { logs.unshift({ time: new Date().toISOString(), text: line }); if(logs.length>100)logs.length=100;publishRecords(); }
 async function stop() { if (tunnel) { const t = tunnel; tunnel = null; await t.stop(); } if (gateway) { const g = gateway; gateway = null; await g.close(); } state('stopped'); }
-async function probe(url, key, isPublic = false) {
-  if (isPublic && !config.hostname) throw new Error('请先设置域名');
-  const r = await fetch(url, { headers: { authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(15000), redirect: 'error' });
-  if (!r.ok) throw new Error(`HTTP ${r.status}：${r.status === 401 ? '密钥不正确' : '请检查本地代理、域名和隧道设置'}`);
-  const data = await r.json();
-  if (isPublic && data.service !== 'scrollbridge') throw new Error('域名未指向卷桥网关');
-  if (!isPublic && !Array.isArray(data.data)) throw new Error('本地服务没有返回 OpenAI 模型列表');
-  return isPublic ? { ok: true, message: '域名 HTTPS 和网关鉴权正常' } : { ok: true, message: `本地服务正常，提供 ${data.data.length} 个模型`, models: data.data.map(m => m.id).slice(0, 80) };
-}
 async function save(payload = {}) {
   if(payload.config?.updateSource!==undefined)throw new Error('请通过更新来源选项修改');
   if(['accessKeys','modelRules'].some(field=>payload.config?.[field]!==undefined) || payload.accessKey!==undefined)throw new Error('请通过密钥或模型页面编辑');
@@ -148,8 +139,8 @@ const actions = {
     if (!config.hostname || !secrets.tunnelToken) throw new Error('请先填写域名和隧道令牌');
     state('starting');
     try {
-      await probe(`${config.upstream}/v1/models`, secrets.upstreamKey);
-      gateway = await startGateway(config, secrets, record => { const index=record.id?records.findIndex(row=>row.id===record.id):-1;if(index>=0)records[index]=record;else records.unshift(record);records=records.slice(0,200);publishRecords(); }, { executable:app.isPackaged?path.join(process.resourcesPath,'vendor','scrollbridge-gateway.exe'):path.join(app.getAppPath(),'vendor','scrollbridge-gateway.exe'),stateDir:path.join(app.getPath('userData'),'gateway-go'),onExit:()=>{void stop().then(()=>state('error','网关意外退出，请重新连接'));},getConfig:()=>config,getSecrets:()=>secrets });
+      await fetchModels(config,secrets);
+      gateway = await startGateway(config, secrets, record => { const index=record.id?records.findIndex(row=>row.id===record.id):-1;if(index>=0)records[index]=record;else records.unshift(record);if(records.length>200)records.length=200;publishRecords(); }, { executable:app.isPackaged?path.join(process.resourcesPath,'vendor','scrollbridge-gateway.exe'):path.join(app.getAppPath(),'vendor','scrollbridge-gateway.exe'),stateDir:path.join(app.getPath('userData'),'gateway-go'),onExit:()=>{void stop().then(()=>state('error','网关意外退出，请重新连接'));},getConfig:()=>config,getSecrets:()=>secrets });
       const executable = app.isPackaged ? path.join(process.resourcesPath, 'vendor', 'cloudflared.exe') : path.join(app.getAppPath(), 'vendor', 'cloudflared.exe');
       tunnel = startTunnel({ executable, token: secrets.tunnelToken, protocol: config.protocol, onState: state, onLog: log });
       log('网关已启动，等待隧道连接');
@@ -224,7 +215,7 @@ app.whenReady().then(async () => {
   startup=createStartup({app,executable});startup.refresh();
   updater=createUpdater({getSource:()=>config.updateSource,getVersion:()=>app.getVersion().replace(/-node$/,''),kind:distribution({portableFile:process.env.PORTABLE_EXECUTABLE_FILE,executable}),directory:path.join(profileDirectory,'updates'),enabled:app.isPackaged && gatewayEngine==='go',fetcher:(url,options)=>githubFetch(url,options,(...args)=>electronFetch(net,...args)),onChange:publish,install:async payload=>{
     if(busy || closing)return false;
-    const unsaved=await window.webContents.executeJavaScript('Boolean(dirty || keyDirty || billingDirty || refreshIntervalDirty)');
+    const unsaved=await window.webContents.executeJavaScript('Boolean(dirty || keyDirty || refreshIntervalDirty)');
     if(unsaved)return false;
     busy=true;
     try{
@@ -253,7 +244,11 @@ app.whenReady().then(async () => {
   if(ticket){
     let ready=false;
     for(let i=0;i<100;i++){ready=await window.webContents.executeJavaScript('typeof snapshot!=="undefined" && !!snapshot');if(ready)break;await new Promise(r=>setTimeout(r,100));}
-    if(ready)acknowledgeUpdate(ticket,app.getVersion());
+    if(ready){
+      if(window.isMinimized())window.restore();
+      window.show();window.focus();
+      if(window.isVisible() && !window.isMinimized())acknowledgeUpdate(ticket,app.getVersion());
+    }
   }
   void modelRefresh.start().finally(()=>{if(ticket?.job.resumeConnection)void invokeAction('start').catch(e=>log('更新后连接恢复失败：'+e.message));});
   if (process.env.SCROLLBRIDGE_SMOKE === '1') {

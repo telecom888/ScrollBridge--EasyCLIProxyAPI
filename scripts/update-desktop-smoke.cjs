@@ -3,7 +3,7 @@
 const fs=require('node:fs'),path=require('node:path'),http=require('node:http'),assert=require('node:assert/strict');
 const {execFileSync,spawn}=require('node:child_process');const {chromium}=require('playwright');const WebSocket=require('ws');
 const {Store,SETTINGS_FILE}=require('../lib/store.cjs');
-const root=path.resolve(__dirname,'..'),version=require('../package.json').version,release=path.join(root,'release');
+const root=path.resolve(__dirname,'..'),version=require('../package.json').version,release=path.resolve(process.env.SCROLLBRIDGE_TEST_RELEASE || path.join(root,'release'));
 const scratch=path.join(root,'.test-output','update-desktop-'+Date.now()),sleep=ms=>new Promise(r=>setTimeout(r,ms));
 function run(file,args){return new Promise((resolve,reject)=>{const p=spawn(file,args,{windowsHide:true,stdio:'ignore'});p.once('error',reject);p.once('exit',c=>c===0?resolve():reject(Error('Process failed: '+c)));});}
 function installed(){const output=execFileSync('pwsh',['-NoProfile','-Command','@(Get-ChildItem HKCU:/Software/Microsoft/Windows/CurrentVersion/Uninstall | Get-ItemProperty | Where-Object { $_.DisplayName -like "卷桥*" -or $_.DisplayName -like "ScrollBridge*" } | Select-Object -ExpandProperty InstallLocation) | ConvertTo-Json -Compress'],{encoding:'utf8',windowsHide:true}).trim();return output?JSON.parse(output):[];}
@@ -86,6 +86,8 @@ async function stopProfile(profile){
    assert.equal(result.status,'success',JSON.stringify({kind,result}));
    const descriptor=JSON.parse(fs.readFileSync(path.join(profile,'management.json')));
    assert.equal(descriptor.appVersion,version);assert.notEqual(descriptor.pid,oldPid);
+   const handle=execFileSync('powershell.exe',['-NoProfile','-NonInteractive','-Command',`(Get-Process -Id ${descriptor.pid}).MainWindowHandle.ToInt64()`],{encoding:'utf8',windowsHide:true}).trim();
+   assert.ok(Number(handle)>0,'restarted desktop must have a visible native window');
    assert.deepEqual(fs.readFileSync(path.join(target,SETTINGS_FILE)),original,'encrypted credentials must remain byte-identical');
    assert.ok(requests.includes(metadata.assets[kind].name));
    await stopProfile(profile);app=null;
@@ -93,7 +95,7 @@ async function stopProfile(profile){
     const uninstall=fs.readdirSync(target).find(n=>/^Uninstall.*\.exe$/i.test(n));await run(path.join(target,uninstall),['/S','/currentuser']);
     await until(()=>!fs.existsSync(path.join(target,'卷桥.exe')));assert.deepEqual(installed(),[]);installDirectory=null;
    }
-   results.push({kind,download:true,checksum:true,restart:true,configPreserved:true});console.log('Desktop update passed:',kind);
+   results.push({kind,download:true,checksum:true,restart:true,visibleWindow:true,configPreserved:true});console.log('Desktop update passed:',kind);
   }
   fs.writeFileSync(path.join(scratch,'report.json'),JSON.stringify({version,results},null,2));console.log('Report: '+scratch);
  }finally{

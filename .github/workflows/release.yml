@@ -41,6 +41,8 @@ jobs:
         run: node scripts/update-worker-smoke.cjs
       - name: Verify Windows startup registration and desktop failure handling
         run: node scripts/startup-smoke.cjs
+      - name: Verify updated desktop window is visible
+        run: node scripts/update-window-smoke.cjs
       - name: Upload three packages and update metadata
         shell: pwsh
         env:

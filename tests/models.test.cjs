@@ -1,11 +1,11 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { modelAllowed, modelFromPath, fetchModels } = require('../lib/models.cjs');
+const { modelKey, modelFromPath, fetchModels } = require('../lib/models.cjs');
 const { validateConfig } = require('../lib/config.cjs');
 test('model policy normalizes Google prefixes and casing but preserves unrelated identifiers', () => {
-  assert.equal(modelAllowed('models/BLOCKED', ['blocked']), false);
-  assert.equal(modelAllowed('open', ['blocked']), true);
-  assert.equal(modelAllowed('', []), false);
+  assert.equal(modelKey('models/BLOCKED'), 'blocked');
+  assert.equal(modelKey('open'), 'open');
+  assert.equal(modelKey(''), '');
   assert.equal(modelFromPath('/v1beta/models/test:streamGenerateContent'), 'test');
   assert.equal(modelFromPath('/v1/models/test'), 'test');
 });

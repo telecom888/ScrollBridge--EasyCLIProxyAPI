@@ -30,6 +30,7 @@
   "build": {
     "appId": "io.scrollbridge.desktop",
     "asar": true,
+    "electronLanguages": ["zh-CN", "en-US"],
     "files": [
       "electron/**",
       "lib/**",

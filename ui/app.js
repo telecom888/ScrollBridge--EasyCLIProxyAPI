@@ -42,6 +42,7 @@ function page(name) {
   const selected = document.querySelector(`.nav[data-page="${name}"]`);
   moveSelection(selected.parentElement, selected);
   $('page-title').textContent = {connection:'连接',access:'接入',keys:'密钥',catalog:'模型',records:'记录',settings:'设置'}[name];
+  if(name==='records')renderRecords();
   reveal($(`page-${name}`)); reveal(document.querySelector('.page-heading'));
 }
 document.querySelectorAll('[data-page]').forEach(el => el.onclick = () => page(el.dataset.page));
@@ -63,7 +64,7 @@ function render(s) {
   $('imagesEnabled').checked = s.config.imagesEnabled;
   $('geminiImageCompatibility').checked = s.config.geminiImageCompatibility;
   renderModelRefreshSettings();renderManagement();renderDiagnosticModels();renderUpdates();
-  $('version').textContent = `v${s.version.replace(/-beta(?:\.\d+)?$/,' beta')}`; renderBilling();renderExample(); renderRecords(); renderDiagnostics(); renderModelCatalog();
+  $('version').textContent = `v${s.version.replace(/-beta(?:\.\d+)?$/,' beta')}`; renderExample(); renderRecords(); renderDiagnostics(); renderModelCatalog();
 }
 for (const id of ['upstream','port','hostname','upstreamKey','tunnelToken']) $(id).addEventListener('input', () => { dirty = true; });
 async function saveForm() { const s = await call('save', { config: {upstream:$('upstream').value,port:Number($('port').value),hostname:$('hostname').value}, upstreamKey:$('upstreamKey').value,tunnelToken:$('tunnelToken').value }); dirty = false; $('upstreamKey').value = ''; $('tunnelToken').value = ''; render(s); }
@@ -105,11 +106,6 @@ document.querySelectorAll('[data-theme]').forEach(el => el.onclick = () => task(
 $('transport').onchange = () => task(null, () => changeSetting({protocol:$('transport').value})); $('launchAtLogin').onchange = () => task(null, async () => { try { await changeSetting({launchAtLogin:$('launchAtLogin').checked}); } finally { render(await call('snapshot')); } });
 $('imagesEnabled').onchange = () => task($('imagesEnabled'), async () => { try { await changeSetting({imagesEnabled:$('imagesEnabled').checked}); } finally { render(await call('snapshot')); } });
 $('geminiImageCompatibility').onchange = () => task($('geminiImageCompatibility'), async () => { try { await changeSetting({geminiImageCompatibility:$('geminiImageCompatibility').checked}); } finally { render(await call('snapshot')); } });
-let billingDirty=false;
-function renderBilling(){const form=$('billing-form');form.hidden=true;if(form.hidden||billingDirty)return;const b=snapshot.config.billing;$('billing-enabled').checked=b.enabled;$('billing-usage-price').checked=b.readUsagePrice;for(const [id,v]of [['currency',b.currency],['pointer',b.usageCostPointer],['input',b.rates.inputPerMillion],['output',b.rates.outputPerMillion],['cached',b.rates.cachedInputPerMillion]])$('billing-'+id).value=v;updateBillingFields();}
-function updateBillingFields(){const usage=$('billing-usage-price').checked;for(const id of ['input','output','cached'])$('billing-'+id).disabled=usage;$('billing-pointer-label').hidden=!usage;}
-$('billing-form').addEventListener('input',()=>{billingDirty=true;updateBillingFields();});
-$('billing-form').onsubmit=e=>{e.preventDefault();task(e.submitter,async()=>{const billing={enabled:$('billing-enabled').checked,currency:$('billing-currency').value.trim().toUpperCase(),readUsagePrice:$('billing-usage-price').checked,usageCostPointer:$('billing-pointer').value.trim(),rates:{inputPerMillion:$('billing-input').value.trim(),outputPerMillion:$('billing-output').value.trim(),cachedInputPerMillion:$('billing-cached').value.trim()}};const s=await call('save',{config:{billing}});billingDirty=false;render(s);toast('费用设置已保存');});};
 $('diagnostic-model').onchange = () => task($('diagnostic-model'), async () => { try { await changeSetting({diagnosticModel:$('diagnostic-model').value}); } finally { render(await call('snapshot')); } });
 $('refresh-diagnostic-models').onclick = () => task($('refresh-diagnostic-models'), async () => { if(dirty) await saveForm(); render(await call('refreshModels')); toast('模型列表已更新'); });
 function renderDiagnosticModels() {
@@ -144,7 +140,8 @@ function filteredRecords() {
   return records;
 }
 const escapeHTML = value => String(value).replace(/[&<>"']/g, x => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[x]));
-const time = value => new Date(value).toLocaleTimeString('zh-CN', {hour12:false});
+const clock = new Intl.DateTimeFormat('zh-CN', {hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false});
+const time = value => clock.format(new Date(value));
 function descriptionRows(items) { return `<dl class="information-list">${items.map(([label,value])=>`<div><dt>${escapeHTML(label)}</dt><dd>${escapeHTML(String(value))}</dd></div>`).join('')}</dl>`; }
 function renderDiagnostics() {
   for (const [name,data] of [['local',snapshot.localDiagnostic],['public',snapshot.publicDiagnostic]]) {
@@ -180,13 +177,15 @@ function renderRecords() {
 function canonicalModel(id) { return id.trim().replace(/^models\//i,'').toLowerCase(); }
 function renderModelCatalog() {
   const known = snapshot.config.knownModels || [], disabled = new Set(snapshot.config.disabledModels || []);
-  const rows = new Map((snapshot.config.modelRules || []).map(rule=>[canonicalModel(rule.actual),{id:rule.actual,available:known.some(id=>canonicalModel(id)===canonicalModel(rule.actual))}]));
+  const available=new Set(known.map(canonicalModel)),exposures=new Map();
+  for(const entry of snapshot.modelEntries || []){if(!exposures.has(entry.modelId))exposures.set(entry.modelId,[]);exposures.get(entry.modelId).push(entry.name);}
+  const rows = new Map((snapshot.config.modelRules || []).map(rule=>[canonicalModel(rule.actual),{id:rule.actual,rule,available:available.has(canonicalModel(rule.actual))}]));
   for (const id of disabled) if (!rows.has(id)) rows.set(id, { id, available:false });
   const query = $('model-search').value.trim().toLowerCase();
   const visible = [...rows.values()].filter(row => row.id.toLowerCase().includes(query));
   const open = known.filter(id => !disabled.has(canonicalModel(id))).length;
   if(replaceContent($('catalog-summary'),snapshot.config.modelsUpdatedAt ? descriptionRows([['模型总数',known.length],['对外开放',open],['更新时间',new Date(snapshot.config.modelsUpdatedAt).toLocaleString('zh-CN',{hour12:false})]]) : '从本地代理获取可用模型')) reveal($('catalog-summary'));
-  const catalogHTML = visible.length ? visible.map(row => { const enabled = row.available && !disabled.has(canonicalModel(row.id)),rule=snapshot.config.modelRules.find(rule=>canonicalModel(rule.actual)===canonicalModel(row.id)); return `<div class="catalog-row"><div><code>${escapeHTML(row.id)}</code><p class="${row.available ? '' : 'unavailable-model'}">${row.available ? (enabled ? '全局开放' : '全局已关闭') : '已下架，全局已关闭'}</p><p class="alias-summary">对外 ID：${escapeHTML((snapshot.modelEntries || []).filter(entry=>entry.modelId===rule?.id).map(entry=>entry.name).join('、') || row.id)}</p></div><div class="catalog-actions">${rule?`<button class="secondary" data-edit-alias="${rule.id}">编辑对外 ID</button>`:''}${!row.available && rule ? `<button class="secondary danger-text" data-delete-model="${rule.id}">删除</button>` : ''}<button type="button" class="model-switch" role="switch" aria-checked="${enabled}" aria-label="${escapeHTML(row.id)} 外部访问" data-modelid="${escapeHTML(row.id)}" ${pending || !row.available ? 'disabled' : ''}><span></span></button></div></div>`; }).join('') : `<div class="empty">${query ? '没有匹配的模型' : '点击「从代理获取」加载模型'}</div>`;
+  const catalogHTML = visible.length ? visible.map(row => { const enabled = row.available && !disabled.has(canonicalModel(row.id)),rule=row.rule; return `<div class="catalog-row"><div><code>${escapeHTML(row.id)}</code><p class="${row.available ? '' : 'unavailable-model'}">${row.available ? (enabled ? '全局开放' : '全局已关闭') : '已下架，全局已关闭'}</p><p class="alias-summary">对外 ID：${escapeHTML((exposures.get(rule?.id) || []).join('、') || row.id)}</p></div><div class="catalog-actions">${rule?`<button class="secondary" data-edit-alias="${rule.id}">编辑对外 ID</button>`:''}${!row.available && rule ? `<button class="secondary danger-text" data-delete-model="${rule.id}">删除</button>` : ''}<button type="button" class="model-switch" role="switch" aria-checked="${enabled}" aria-label="${escapeHTML(row.id)} 外部访问" data-modelid="${escapeHTML(row.id)}" ${pending || !row.available ? 'disabled' : ''}><span></span></button></div></div>`; }).join('') : `<div class="empty">${query ? '没有匹配的模型' : '点击「从代理获取」加载模型'}</div>`;
   reconcileRows($('catalog-list'),catalogHTML,row=>row.querySelector('[data-modelid]')?.dataset.modelid || `empty:${row.textContent}`,(row,next)=>{
     const control=row.querySelector('[data-modelid]'), incoming=next.querySelector('[data-modelid]');
     if(!control) return;
@@ -267,7 +266,12 @@ function renderUpdates(){
 }
 $('update-source').onchange=()=>task($('update-source'),async()=>{try{await call('setUpdateSource',{source:$('update-source').value});}finally{render(await call('snapshot'));}});
 $('check-update').onclick=()=>task($('check-update'),async()=>{await call('checkUpdates');});
-$('download-update').onclick=()=>task($('download-update'),async()=>{if(dirty || keyDirty || billingDirty || refreshIntervalDirty){toast('请先保存未完成的修改',true);return;}await call(snapshot.update?.phase==='ready'?'installUpdate':'downloadUpdate');});
+$('download-update').onclick=()=>task($('download-update'),async()=>{if(dirty || keyDirty || refreshIntervalDirty){toast('请先保存未完成的修改',true);return;}await call(snapshot.update?.phase==='ready'?'installUpdate':'downloadUpdate');});
+function receiveRecords(data){
+  if(!snapshot)return;
+  snapshot.records=data.records;snapshot.logs=data.logs;
+  if(currentPage==='records')renderRecords();
+}
 initManagement();
-if (window.bridge) { window.bridge.onUpdate(render); call('snapshot').then(render).catch(() => {}); }
+if (window.bridge) { window.bridge.onUpdate(render);window.bridge.onRecords(receiveRecords); call('snapshot').then(render).catch(() => {}); }
 else { $('status-message').textContent = '请使用桌面应用启动'; }
