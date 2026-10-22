@@ -14,6 +14,7 @@ if(mode!=='node' && !reuseCore){
  const used=new Set(execFileSync('go',['list','-deps','-f','{{if .Module}}{{.Module.Path}}{{end}}','./...'],{cwd,encoding:'utf8',windowsHide:true}).trim().split(/\r?\n/));const mods=execFileSync('go',['list','-m','-f','{{.Path}}|{{.Version}}|{{.Dir}}','all'],{cwd,encoding:'utf8',windowsHide:true}).trim().split(/\r?\n/).map(s=>s.split('|'));let notices='Go gateway runtime dependency licenses\n';for(const[n,v,d]of mods){if(!v||!used.has(n))continue;const names=fs.readdirSync(d).filter(f=>/^(LICENSE|COPYING)(\.|$)/i.test(f)&&fs.statSync(path.join(d,f)).isFile());if(!names.length)throw Error('Missing license: '+n);for(const name of names)notices+='\n'+n+' '+v+'\n\n'+fs.readFileSync(path.join(d,name),'utf8').trim()+'\n'}fs.writeFileSync(path.join(root,'licenses','go-gateway.txt'),notices);
 }
 if(mode==='core'){console.log('Go desktop core built');process.exit(0)}
+fs.mkdirSync(path.join(root,'release'),{recursive:true});
 const builder=require('electron-builder');
 (async()=>{
  const builds={};
