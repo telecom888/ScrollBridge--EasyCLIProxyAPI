@@ -1,5 +1,7 @@
 # 卷桥 ScrollBridge
 
+0.3.14 更新区域显示「当前版本 → 检测到的版本」，GitHub 正式发布提供 ZIP 文件夹版、安装版和单 EXE 版。更新说明见 [docs/0.3.14.md](docs/0.3.14.md)。
+
 0.3.13 新增三种桌面包的更新检测、下载、安装和重启，入口位于「设置 → 外观」下方。发布与测试说明见 [UPDATES.md](UPDATES.md)。
 
 0.3.8 以 Go 网关作为主线，新增按密钥筛选日志及单密钥并发、周期请求限额。更新说明见 [docs/0.3.8.md](docs/0.3.8.md)。桌面本机管理 API 与 UI 同步，调用示例见 [MANAGEMENT-API.md](MANAGEMENT-API.md)。
@@ -8,7 +10,7 @@
 
 ## 启动
 
-双击 `release/ScrollBridge-0.3.8-win-x64.exe`，无需安装 Node.js、管理员权限或开放入站端口。保持原代理工具运行。
+双击 `release/ScrollBridge-0.3.14-win-x64.exe`，无需安装 Node.js、管理员权限或开放入站端口。保持原代理工具运行。
 
 配置文件为 exe 同目录的 `scrollbridge.json`。升级时将新 exe 放入该目录即可，移动到其他目录时请同时带上配置文件。目录必须可写，不会回退到 C 盘另建配置。0.3.10 使用版本 3 配置，凭据通过固定内置密钥的 AES-256-GCM 保存，不再依赖 Windows 账户或 Electron Local State。旧格式需先显式转换，不能直接交给新版本读取。Electron 缓存、单实例锁和 Go 运行账本继续由用户数据目录管理。
 

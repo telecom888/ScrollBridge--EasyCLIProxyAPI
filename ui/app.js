@@ -225,7 +225,8 @@ $('refresh-models').onclick = async () => { await task($('refresh-models'), asyn
 $('clear-records').onclick = () => task(null, () => call('clearLogs'));
 function renderUpdates(){
  const u=snapshot.update || {},active=['checking','downloading','installing'].includes(u.phase);
- $('update-current').textContent='当前版本 '+snapshot.version;
+ const detected=u.detectedVersion || u.availableVersion;
+ $('update-current').textContent=detected?snapshot.version+' → '+detected:'当前版本 '+snapshot.version;
  $('update-message').textContent=u.supported===false?'请使用发行版检测更新':u.message || '尚未检测更新';
  $('check-update').disabled=active || u.supported===false;
  $('check-update').textContent=u.phase==='checking'?'正在检测':'检测更新';

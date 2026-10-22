@@ -36,7 +36,7 @@ test('checking is explicit and a verified complete download starts installation 
  await f.updater.download();assert.equal(f.installs.length,1);
 });
 test('no release, current version, missing manifest and network failure do not offer unsafe downloads',async t=>{
- const current=fixture(t,{currentVersion:'0.3.14'});await current.updater.check();assert.equal(current.updater.snapshot().phase,'latest');assert.equal(current.calls.length,1);
+ const current=fixture(t,{currentVersion:'0.3.14'});await current.updater.check();assert.equal(current.updater.snapshot().phase,'latest');assert.equal(current.updater.snapshot().detectedVersion,'0.3.14');assert.equal(current.calls.length,1);
  for(const fetcher of [async()=>new Response(null,{status:404}),async()=>{throw Error('offline');},async()=>Response.json({tag_name:'v0.3.14',assets:[]})]){
   const f=fixture(t,{fetcher});await f.updater.check();assert.equal(f.updater.snapshot().canDownload,false);assert.equal(f.installs.length,0);
  }
