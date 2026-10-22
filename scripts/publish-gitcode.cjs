@@ -27,15 +27,19 @@ async function publishGitcode({directory,token,notes='',fetcher=fetch,download=g
  if(release && !release.prerelease && release.release_status!=='pre')throw Error('GitCode 已有正式版本，请勿覆盖；如需重试，请先将该发行版设为预发布');
  if(!release)release=await api('',{method:'POST',body:{...payload,tag_name:tag}});
  else await api('/'+tag,{method:'PATCH',body:payload});
- const uploadNames=[...names,`SHA256SUMS-${version}.txt`,'scrollbridge-update.json'];
+ const uploadNames=[`SHA256SUMS-${version}.txt`,'scrollbridge-update.json',...names];
  for(const name of uploadNames){
   const filename=path.join(directory,name),size=fs.statSync(filename).size;
   const old=release.assets?.find(a=>a.name===name);if(old){if(!Number.isSafeInteger(old.id))throw Error('GitCode 附件缺少 ID');await api(`/${tag}/attach_files/${old.id}`,{method:'DELETE'});}
-  const signed=await api(`/${tag}/upload_url`,{query:{file_name:name}});
+  log(`正在上传 GitCode：${name}（${size} 字节）`);
+  const signed=await api(`/${tag}/upload_url`,{query:{file_name:name,file_size:String(size)}});
   const url=new URL(signed.url);if(url.protocol!=='https:' || url.username || url.password || url.port || !(url.hostname==='file.gitcode.com' || /^[a-z0-9-]+\.obs\.[a-z0-9-]+\.myhuaweicloud\.com$/.test(url.hostname)))throw Error('GitCode 上传主机尚未验证：'+url.hostname);
-  let result;try{result=await fetcher(url.href,{method:'PUT',redirect:'error',headers:{...signed.headers,'Content-Length':String(size)},body:Readable.toWeb(fs.createReadStream(filename)),duplex:'half',signal:AbortSignal.timeout(30*60*1000)});}catch{throw Error('GitCode 附件上传失败');}
+  const stream=fs.createReadStream(filename),body=Readable.toWeb(stream);let sent=0,last=Date.now();
+  stream.on('data',chunk=>{sent+=chunk.length;if(Date.now()-last>=15000){log(`GitCode 上传进度：${name} ${Math.floor(sent*100/size)}%`);last=Date.now();}});
+  let result;try{result=await fetcher(url.href,{method:'PUT',redirect:'error',headers:{...signed.headers,'Content-Length':String(size)},body,duplex:'half',signal:AbortSignal.timeout(30*60*1000)});}catch{stream.destroy();throw Error('GitCode 附件上传失败');}
   if(!result.ok)throw Error(`GitCode 附件上传失败（HTTP ${result.status}）`);await result.body?.cancel();
   // Anonymous round trip: verify the actual public bytes before making the release latest.
+  log(`正在校验 GitCode 公开下载：${name}`);
   const response=await download(`${GITCODE_API}/${tag}/attach_files/${name}/download`,{signal:AbortSignal.timeout(30*60*1000)});
   if(!response.ok || !response.body)throw Error(`GitCode 附件公开访问失败（HTTP ${response.status}）`);
   const hash=crypto.createHash('sha256'),local=crypto.createHash('sha256');let count=0;

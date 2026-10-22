@@ -13,7 +13,7 @@ test('GitCode publication verifies all public artifacts before promoting the rel
   if(url.hostname==='file.gitcode.com'){assert.equal(options.redirect,'error');remote.set(url.pathname.slice(1),Buffer.from(await new Response(options.body).arrayBuffer()));return new Response('');}
   assert.equal(url.hostname,'api.gitcode.com');assert.equal(url.searchParams.get('access_token'),'test-only-token');
   if(url.pathname.includes('/tags/'))return Response.json({error_message:'未找到 release'},{status:400});
-  if(url.pathname.endsWith('/upload_url'))return Response.json({url:'https://file.gitcode.com/'+url.searchParams.get('file_name'),headers:{'Content-Type':'application/octet-stream'}});
+  if(url.pathname.endsWith('/upload_url')){const name=url.searchParams.get('file_name');assert.equal(url.searchParams.get('file_size'),String(fs.statSync(path.join(directory,name)).size));return Response.json({url:'https://file.gitcode.com/'+name,headers:{'Content-Type':'application/octet-stream'}});}
   return Response.json({assets:[]});
  };
  let downloads=0;
