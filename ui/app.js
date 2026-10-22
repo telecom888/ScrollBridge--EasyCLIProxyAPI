@@ -119,7 +119,7 @@ function renderDiagnosticModels() {
 }
 document.querySelectorAll('[data-bind-tab]').forEach(el => el.onclick = () => { if(el.classList.contains('active')) return; moveSelection(el.parentElement, el); $('manual-binding').hidden = el.dataset.bindTab !== 'manual'; $('automatic-binding').hidden = el.dataset.bindTab !== 'automatic'; reveal(el.dataset.bindTab === 'manual' ? $('manual-binding') : $('automatic-binding')); });
 $('automatic-binding').onsubmit = e => { e.preventDefault(); task(e.submitter, async () => { if (dirty) { toast('请先返回连接页保存域名', true); return; } try { const r = await call('bind', {apiToken:$('cf-token').value,accountId:$('cf-account').value.trim(),zoneId:$('cf-zone').value.trim()}); render(await call('snapshot')); toast(r.message); } finally { $('cf-token').value = ''; } }); };
-for (const [id, action] of [['cloudflare','openCloudflare'],['guide','openGuide'],['open-data','openData']]) $(id).onclick = () => task(null, () => call(action));
+for (const [id, action] of [['cloudflare','openCloudflare'],['guide','openGuide'],['open-data','openData'],['github-project','openRepository']]) $(id).onclick = () => task(null, () => call(action));
 document.querySelectorAll('[data-record-tab]').forEach(el => el.onclick = () => { if(el.classList.contains('active')) return; moveSelection(el.parentElement, el); $('requests-table').hidden = el.dataset.recordTab !== 'requests'; $('record-key-filters').hidden=el.dataset.recordTab !== 'requests'; $('tunnel-logs').hidden = el.dataset.recordTab !== 'tunnel'; reveal(el.dataset.recordTab === 'requests' ? $('requests-table') : $('tunnel-logs')); });
 const recordKeySelection=new Set();
 $('record-filter-mode').onchange=renderRecords;

@@ -14,7 +14,7 @@ const {fetchModels,modelKey,modelName}=require('../lib/models.cjs');
 const {uid,newKey,syncModels,deleteUnavailableModel,entries}=require('../lib/policy.cjs');
 const {createModelRefresh}=require('../lib/model-refresh.cjs');
 const {startManagementAPI}=require('../lib/management-api.cjs');
-const {createUpdater,distribution,githubFetch}=require('../lib/updates.cjs');
+const {createUpdater,distribution,githubFetch,REPOSITORY}=require('../lib/updates.cjs');
 const {electronFetch}=require('../lib/electron-fetch.cjs');
 const {createInstallJob,launchInstallJob}=require('../lib/update-install.cjs');
 const {readUpdateTicket,acknowledgeUpdate}=require('../lib/update-ticket.cjs');
@@ -166,6 +166,7 @@ const actions = {
     log(`已绑定 ${config.hostname}`); publish(); return { ok: true, message: '域名与隧道已创建，令牌已加密保存' };
   },
   openCloudflare: () => shell.openExternal('https://dash.cloudflare.com/'),
+  openRepository: () => shell.openExternal('https://github.com/'+REPOSITORY),
   openGuide: () => shell.openExternal('https://developers.cloudflare.com/tunnel/get-started/'),
   clearLogs: () => { records = []; logs = []; publish(); return true; },
   openData: () => shell.openPath(configDirectory)
@@ -175,7 +176,7 @@ function updateModels(knownModels) {
 }
 async function invokeAction(action,payload) {
   if(!Object.hasOwn(actions,action))throw Object.assign(new Error('请求无效'),{status:404,code:'NOT_FOUND'});
-  const mutation=!['snapshot','copy','copyKey','revealKey','openCloudflare','openGuide','openData','checkUpdates','downloadUpdate','installUpdate'].includes(action);
+  const mutation=!['snapshot','copy','copyKey','revealKey','openCloudflare','openGuide','openData','openRepository','checkUpdates','downloadUpdate','installUpdate'].includes(action);
   if(closing)throw Object.assign(new Error('程序正在退出'),{status:503,code:'SHUTTING_DOWN'});
   if(mutation && busy)throw Object.assign(new Error('请等待当前操作完成'),{status:409,code:'BUSY'});
   if(mutation)busy=true;

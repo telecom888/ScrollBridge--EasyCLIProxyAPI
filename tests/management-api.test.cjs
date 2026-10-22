@@ -32,7 +32,7 @@ test('invalid bodies and private UI actions cannot reach desktop operations',asy
   assert.equal((await f.request('/config',{method:'PATCH',headers:{'content-type':'text/plain'},body:'{}'})).status,415);
   assert.equal((await f.request('/config',{method:'PATCH',headers:{'content-type':'application/json'},body:'{broken'})).status,400);
   assert.equal((await f.request('/config',{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify({config:{theme:'a'.repeat(1024*1024)}})})).status,413);
-  for(const route of ['/bind','/openData','/copyKey','/snapshot','/checkUpdates','/downloadUpdate','/installUpdate','/../status'])assert.equal((await f.request(route,{method:'POST'})).status,404);
+  for(const route of ['/bind','/openData','/openRepository','/copyKey','/snapshot','/checkUpdates','/downloadUpdate','/installUpdate','/../status'])assert.equal((await f.request(route,{method:'POST'})).status,404);
   assert.equal((await f.request('/logs?limit=999')).status,400);assert.deepEqual(seen,[]);
 });
 test('transport preserves busy/error codes and never returns full state or secrets from normal queries',async t=>{
