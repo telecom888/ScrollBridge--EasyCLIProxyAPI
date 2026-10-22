@@ -32,10 +32,15 @@ jobs:
           GH_REPO: ${{ github.repository }}
           REQUESTED_TAG: ${{ inputs.tag }}
           RELEASE_COMMIT: ${{ github.event.workflow_run.head_sha }}
+          RELEASE_NAME: ${{ github.event.workflow_run.display_title }}
         run: |
           tag="$REQUESTED_TAG"
           if [ -z "$tag" ]; then
-            tag=$(git tag --points-at "$RELEASE_COMMIT" | sort -V | tail -n 1)
+            if [[ "$RELEASE_NAME" =~ (v[0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+              tag="${BASH_REMATCH[1]}"
+            else
+              tag=$(git tag --points-at "$RELEASE_COMMIT" | sort -V | tail -n 1)
+            fi
           fi
           if ! [[ "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then echo 'No matching stable release tag'; exit 1; fi
           gh release download "$tag" --dir release --pattern 'ScrollBridge-*-win-x64.*' --pattern 'SHA256SUMS-*.txt' --pattern 'scrollbridge-update.json'
