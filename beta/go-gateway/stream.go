@@ -160,11 +160,36 @@ func (w *deadlineWriter) Write(b []byte) (int, error) {
 	return n, e
 }
 func streamSSE(dst *deadlineWriter, src io.Reader, e entry, capBytes int, u *usage, reserved int64) error {
+	return streamSSEBudget(dst, src, e, capBytes, u, reserved, nil)
+}
+
+func streamSSEBudget(dst *deadlineWriter, src io.Reader, e entry, capBytes int, u *usage, reserved int64, budget func(int64) bool) error {
 	// Scanner handles CRLF and never queues events independently of the writer.
 	scanner := bufio.NewScanner(src)
-	scanner.Split(splitSSELines)
 	scanner.Buffer(make([]byte, 4096), capBytes+2)
 	var frame bytes.Buffer
+	var charged int64
+	defer func() {
+		if budget != nil {
+			budget(-charged)
+		}
+	}()
+	scanner.Split(func(data []byte, eof bool) (int, []byte, error) {
+		// Reserve before Scanner grows its buffer, and before accumulating a
+		// frame. Retain the high-water reservation until both buffers are freed.
+		size := max(4096, len(data))
+		if len(data) == cap(data) && !eof {
+			size = min(capBytes+2, size*2)
+		}
+		need := max(int64(0), int64(frame.Len()+size)*8-(32<<10))
+		if budget != nil && need > charged {
+			if !budget(need - charged) {
+				return 0, nil, errors.New("shared stream buffer limit")
+			}
+			charged = need
+		}
+		return splitSSELines(data, eof)
+	})
 	flush := func() error {
 		if frame.Len() == 0 {
 			return nil
@@ -183,7 +208,7 @@ func streamSSE(dst *deadlineWriter, src io.Reader, e entry, capBytes int, u *usa
 			u.Complete = true
 		}
 		out := raw + "\n"
-		if v, err := strictJSON([]byte(payload)); err == nil {
+		if v, err := responseJSON([]byte(payload)); err == nil {
 			observe(v, u)
 			if e.Billing.Enabled {
 				observeCost(v, u, e.Billing.UsageCostPointer)
@@ -247,6 +272,21 @@ func streamSSE(dst *deadlineWriter, src io.Reader, e entry, capBytes int, u *usa
 		return err
 	}
 	return flush()
+}
+
+// Upstream events are already size-bounded. Use the standard decoder here;
+// strict duplicate-field validation remains on untrusted client requests.
+func responseJSON(b []byte) (any, error) {
+	d := json.NewDecoder(bytes.NewReader(b))
+	d.UseNumber()
+	var v any
+	if err := d.Decode(&v); err != nil {
+		return nil, err
+	}
+	if d.Decode(new(any)) != io.EOF {
+		return nil, errors.New("trailing JSON data")
+	}
+	return v, nil
 }
 
 func splitSSELines(data []byte, atEOF bool) (int, []byte, error) {

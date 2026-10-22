@@ -1,12 +1,12 @@
 # 卷桥 ScrollBridge
 
-0.3.7 新增桌面本机管理 API，大模型代理可通过 HTTP 操作连接、日志、配置、模型和密钥。操作同步到桌面 UI，详情和调用示例见 [MANAGEMENT-API.md](MANAGEMENT-API.md)。
+0.3.8 以 Go 网关作为主线，新增按密钥筛选日志及单密钥并发、周期请求限额。更新说明见 [docs/0.3.8.md](docs/0.3.8.md)。桌面本机管理 API 与 UI 同步，调用示例见 [MANAGEMENT-API.md](MANAGEMENT-API.md)。
 
 将正在本机运行的 CLIProxyAPI / EasyCLIProxyAPI 模型服务通过固定域名提供给外部客户端。Windows x64 桌面应用，白色与羊皮纸色界面，支持深色和跟随系统。域名默认留空。
 
 ## 启动
 
-双击 `release/ScrollBridge-0.3.7-win-x64.exe`，无需安装 Node.js、管理员权限或开放入站端口。保持原代理工具运行。
+双击 `release/ScrollBridge-0.3.8-win-x64.exe`，无需安装 Node.js、管理员权限或开放入站端口。保持原代理工具运行。
 
 配置文件为 exe 同目录的 `scrollbridge.json`。普通版和 beta 版放在同一目录时共享配置；升级时将新 exe 放入该目录即可。移动到其他目录时请同时带上配置文件。目录必须可写，不会回退到 C 盘另建配置。密钥仍依赖原 Windows 账户和 Electron 加密环境；用户数据目录的 Local State 属于加密环境，不作为旧业务配置删除。Electron 缓存、单实例锁和 Go 运行账本继续由用户数据目录管理。
 
@@ -114,14 +114,14 @@ API 令牌最小权限：目标账户 **Cloudflare Tunnel: Edit**，目标区域
 - 网关仅监听 `127.0.0.1`；本地上游也限制回环地址。HTTPS 上游保留证书校验，不提供跳过校验选项。
 - 外部密钥、本地密钥、隧道令牌由 Electron safeStorage 使用 Windows DPAPI 加密，保存在 exe 同目录 `scrollbridge.json`。配置绑定当前 Windows 用户。隧道令牌通过子进程环境传递，不在命令行或明文文件中保存。
 - 日志只在内存保留最近 200 条请求、100 条隧道消息，不记录正文和查询参数。退出即清空。复制密钥后系统剪贴板中会保留该值。
-- 单请求上限 32 MiB，最多 64 个并发上游请求，闲置上游超时 10 分钟，HTTP 请求最长 30 分钟。流使用管道背压，客户端断开会取消上游。
+- 单请求上限 32 MiB，请求总超时 30 分钟。默认不设固定并发或活动上游连接上限；可在「密钥」页分别设置并发数、每几分钟或几小时的请求数。流式转发保持背压、内存预算、单事件大小及慢客户端写入超时保护，客户端断开会取消上游。
 - 连接运行时关闭主窗口会缩到托盘；从托盘「退出」停止隧道和网关。应用不会启动或退出原代理工具。开机启动只打开卷桥，不自动向公网发布。
 - 本机和原代理必须保持运行、联网且不休眠。命名隧道连接成功不代表 DNS 和证书已生效，需再做「检测 HTTPS」。外网最终验证应在手机蜂窝网络或其他网络使用实际客户端发起请求。
 - 云端服务与 Cloudflare 的请求大小、超时及网络可达性仍适用。受限网络可在设置将传输改成 HTTP/2；电脑需能出站访问 Cloudflare Tunnel 的 7844 端口。
 
 ## 开发与打包
 
-需要 Node.js 24、npm、Windows x64；Python Pillow 仅用于重新生成应用图标。
+需要 Go（版本见 beta/go-gateway/go.mod）、Node.js 24、npm、Windows x64；Python Pillow 仅用于重新生成应用图标。
 
 ```powershell
 npm ci
@@ -149,14 +149,14 @@ UI 先用内置 ImageGen 生成参考，再实现原生代码界面。参考图�
 
 项目使用 MIT 许可证。没有捆绑原 CLIProxyAPI 或 EasyCLIProxyAPI 可执行文件。
 
-## Go 网关 beta
+## Go 网关主线
 
-分支 `beta/go-gateway` 同时交付两个桌面版本：`ScrollBridge-0.3.7-win-x64.exe` 保留 Node 网关，`ScrollBridge-0.3.7-beta-win-x64.exe` 使用 Go 网关。两者复用桌面布局、Windows 加密配置及隧道管理，界面不标注技术栈，后者仅在版本号显示 beta。新增费用设置和记录位于 beta 版。
+从 0.3.8 起，Go 网关作为主线，Electron 桌面、加密配置及隧道管理继续共用。默认构建输出 `ScrollBridge-0.3.8-win-x64.exe`，不再标注 beta。Node 网关保留在仓库供历史回归，后续新增网关功能以 Go 为准；需要单独构建时使用 `npm run dist:node`，文件带 `-node` 后缀。
 
 Go 已移植 WebSocket、multipart 图像编辑、Gemini 图像生成兼容、gzip/deflate/Brotli、单模型详情及过滤后的上游模型目录。两版在同目录共用配置，使用同一单实例锁，请退出一版再打开另一版。
 
 配置相关验证：`node scripts/profile-upgrade-smoke.cjs` 检查两种版本反复启动、单实例和密钥保持；`node scripts/portable-location-smoke.cjs` 实际复制、重命名两份便携 exe，验证配置位于外层 exe 同目录而非临时解包目录或用户数据目录；`node scripts/portable-duplicate-smoke.cjs` 验证重复启动不会删除在用资源；`node scripts/startup-error-smoke.cjs` 验证错误记录不包含密钥、不会覆盖错误配置。
 
-构建：`node scripts/build-desktop.cjs both`；单独构建可用 `npm run dist:node` / `npm run dist:go`。开发启动默认 Node；先执行 `node scripts/build-desktop.cjs core`，再设置 `SCROLLBRIDGE_GATEWAY_ENGINE=go` 可在开发环境测试 Go 桌面版。
+默认构建：`npm run dist`；开发时先执行 `node scripts/build-desktop.cjs core`，再 `npm start`，默认启动 Go 网关。`npm run test:go` 执行核心功能和桌面桥接回归。历史 Node 版可单独使用 `npm run dist:node` 构建。
 
 本次移植及验证见 [桌面双版本说明](beta/go-gateway/DESKTOP-0.3.0.md)。独立网关和可选 Redis 操作见 [核心说明](beta/go-gateway/README.md)；[原始性能对比](beta/go-gateway/REPORT.md) 是 0.1.0 核心版本的历史测量，不能作为本次桌面版的新压测数据。

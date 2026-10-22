@@ -22,6 +22,7 @@ type flight struct {
 	cancel       context.CancelFunc
 	keyID, model string
 	version      int64
+	session      bool
 }
 type gateway struct {
 	current                    atomic.Pointer[snapshot]
@@ -34,6 +35,8 @@ type gateway struct {
 	mu                         sync.Mutex
 	active                     map[*flight]bool
 	keyActive                  map[string]int
+	activeRequests             int
+	requestWindows             map[string]requestWindow
 	memory                     int64
 	stale                      atomic.Bool
 	requests, rejected, failed atomic.Uint64
@@ -45,10 +48,12 @@ func newGateway(s *snapshot, l accounting) *gateway {
 	t.DisableCompression = true
 	t.MaxIdleConns = 256
 	t.MaxIdleConnsPerHost = 128
-	t.MaxConnsPerHost = 4096
-	t.ResponseHeaderTimeout = 30 * time.Second
+	t.MaxConnsPerHost = 0 // Active requests are governed by explicit policies, not a transport ceiling.
+	// The request context owns the total upstream deadline. A separate fixed
+	// header deadline would abort queued/slow model generations prematurely.
+	t.ResponseHeaderTimeout = 0
 	t.IdleConnTimeout = 90 * time.Second
-	g := &gateway{transport: t, pool: newPool(), ledger: l, active: map[*flight]bool{}, keyActive: map[string]int{}}
+	g := &gateway{transport: t, pool: newPool(), ledger: l, active: map[*flight]bool{}, keyActive: map[string]int{}, requestWindows: map[string]requestWindow{}}
 	g.current.Store(s)
 	return g
 }
@@ -68,6 +73,11 @@ func (g *gateway) apply(s *snapshot) error {
 	}
 	g.current.Store(s)
 	g.pool.prune(s.cfg.Upstreams)
+	for id := range g.requestWindows {
+		if s.byID[id] == nil {
+			delete(g.requestWindows, id)
+		}
+	}
 	// Access/resource changes cancel old flights. Price-only updates preserve
 	// in-flight quotes and must not interrupt an otherwise healthy generation.
 	for f := range g.active {
@@ -83,25 +93,30 @@ func (g *gateway) acquire(k *Key, s *snapshot, f *flight) bool {
 	if g.current.Load() != s || g.stale.Load() || g.auditFailed.Load() {
 		return false
 	}
-	limit := k.Concurrent
-	if limit == 0 {
-		limit = s.cfg.Limits.Concurrent
-	}
-	if len(g.active) >= s.cfg.Limits.Concurrent || g.keyActive[k.ID] >= limit {
+	if !f.session && ((s.cfg.Limits.Concurrent > 0 && g.activeRequests >= s.cfg.Limits.Concurrent) || (k.Concurrent > 0 && g.keyActive[k.ID] >= k.Concurrent)) {
 		return false
 	}
 	g.active[f] = true
-	g.keyActive[k.ID]++
+	if !f.session {
+		g.keyActive[k.ID]++
+		g.activeRequests++
+	}
 	return true
 }
 func (g *gateway) release(f *flight) {
 	g.mu.Lock()
-	delete(g.active, f)
-	g.keyActive[f.keyID]--
-	if g.keyActive[f.keyID] == 0 {
-		delete(g.keyActive, f.keyID)
+	defer g.mu.Unlock()
+	if !g.active[f] {
+		return
 	}
-	g.mu.Unlock()
+	delete(g.active, f)
+	if !f.session {
+		g.activeRequests--
+		g.keyActive[f.keyID]--
+		if g.keyActive[f.keyID] == 0 {
+			delete(g.keyActive, f.keyID)
+		}
+	}
 }
 func (g *gateway) mem(n int64, limit int64) bool {
 	g.mu.Lock()
@@ -115,11 +130,11 @@ func (g *gateway) mem(n int64, limit int64) bool {
 func (g *gateway) read(src io.Reader, limit, memLimit int64) ([]byte, func(), error) {
 	var charged int64
 	release := func() { g.mem(-charged, memLimit); charged = 0 }
-	parts := [][]byte{}
+	var body bytes.Buffer
+	buf := make([]byte, min(int64(4096), limit+1))
 	var size int64
 	for {
-		buf := make([]byte, min(int64(32<<10), limit-size+1))
-		n, e := src.Read(buf)
+		n, e := src.Read(buf[:min(int64(len(buf)), limit-size+1)])
 		if n > 0 {
 			size += int64(n)
 			if size > limit {
@@ -132,7 +147,7 @@ func (g *gateway) read(src io.Reader, limit, memLimit int64) ([]byte, func(), er
 				return nil, func() {}, errors.New("buffer budget exhausted")
 			}
 			charged += cost
-			parts = append(parts, buf[:n])
+			_, _ = body.Write(buf[:n])
 		}
 		if e != nil {
 			if e != io.EOF {
@@ -142,7 +157,7 @@ func (g *gateway) read(src io.Reader, limit, memLimit int64) ([]byte, func(), er
 			break
 		}
 	}
-	return bytes.Join(parts, nil), release, nil
+	return body.Bytes(), release, nil
 }
 func token(r *http.Request) string {
 	h := r.Header.Get("Authorization")
@@ -260,7 +275,7 @@ func outputLimit(m map[string]any, path string, k *Key) (int64, error) {
 	return requested, nil
 }
 func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	rw := &recordWriter{ResponseWriter: w}
+	rw := &recordWriter{ResponseWriter: w, writeSeconds: g.current.Load().cfg.Limits.WriteSeconds}
 	w = rw
 	record := map[string]any{"time": time.Now().UTC().Format(time.RFC3339Nano), "method": r.Method, "path": r.URL.Path}
 	began := time.Now()
@@ -275,7 +290,6 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			g.record(record)
 		}
 	}()
-	_ = http.NewResponseController(w).SetWriteDeadline(time.Now().Add(time.Duration(g.current.Load().cfg.Limits.WriteSeconds) * time.Second))
 	g.requests.Add(1)
 	start := time.Now()
 	s := g.current.Load()
@@ -448,8 +462,6 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	actual = e.Actual
 	record["model"] = requested
 	record["actualModel"] = actual
-	record["model"] = requested
-	record["actualModel"] = actual
 	billing = e.Billing
 	f.model = requested
 	needsRewrite := bodyModel != "" && bodyModel != actual
@@ -472,6 +484,13 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Admission and reservation happen before any supply request. No generation retries.
+	if r.Method == "POST" {
+		if retry := g.takeRequest(k, time.Now()); retry > 0 {
+			w.Header().Set("Retry-After", fmt.Sprint(retry))
+			reject(429, "key request limit reached")
+			return
+		}
+	}
 	if reservation > 0 {
 		if err = g.ledger.Reserve(k.ID, reservation, k.OutputTokens); err != nil {
 			reject(429, "quota unavailable or exhausted")
@@ -651,21 +670,21 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ct, _, _ := mime.ParseMediaType(response.Header.Get("Content-Type"))
 	dst := &deadlineWriter{w: w, seconds: s.cfg.Limits.WriteSeconds, limit: s.cfg.Limits.OutputBytes}
 	if ct == "text/event-stream" && status < 400 {
-		// Reserve a bounded event plus parsing/encoding workspace, independently of body buffers.
-		eventMemory := int64(s.cfg.Limits.EventBytes)*8 + 32<<10
-		if !g.mem(eventMemory, s.cfg.Limits.MemoryBytes) {
-			result = "buffer_limit"
+		// Reserve a small base, then grow with observed events instead of charging
+		// the maximum event size to every idle stream.
+		const streamBase = 32 << 10
+		if !g.mem(streamBase, s.cfg.Limits.MemoryBytes) {
 			reject(503, "shared stream buffer limit")
 			return
 		}
-		defer g.mem(-eventMemory, s.cfg.Limits.MemoryBytes)
+		defer g.mem(-streamBase, s.cfg.Limits.MemoryBytes)
 		for n, v := range headers {
 			w.Header()[n] = v
 		}
 		w.Header().Set("X-Accel-Buffering", "no")
 		w.WriteHeader(status)
 		_ = http.NewResponseController(w).Flush()
-		err = streamSSE(dst, responseReader, e, s.cfg.Limits.EventBytes, &u, reservation)
+		err = streamSSEBudget(dst, responseReader, e, s.cfg.Limits.EventBytes, &u, reservation, func(n int64) bool { return g.mem(n, s.cfg.Limits.MemoryBytes) })
 		if err != nil {
 			result = "stream_interrupted"
 			cancel()

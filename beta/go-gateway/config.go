@@ -38,14 +38,16 @@ type Limits struct {
 	WriteSeconds   int   `json:"writeSeconds"`
 }
 type Key struct {
-	ID              string   `json:"id"`
-	Digest          string   `json:"sha256"`
-	Enabled         bool     `json:"enabled"`
-	Mode            string   `json:"mode"`
-	Allowed         []string `json:"allowed"`
-	Concurrent      int      `json:"concurrent"`
-	OutputTokens    int64    `json:"outputTokens"`
-	MaxOutputTokens int64    `json:"maxOutputTokens"`
+	ID                   string   `json:"id"`
+	Digest               string   `json:"sha256"`
+	Enabled              bool     `json:"enabled"`
+	Mode                 string   `json:"mode"`
+	Allowed              []string `json:"allowed"`
+	Concurrent           int      `json:"concurrent"`
+	RequestLimit         int64    `json:"requestLimit"`
+	RequestWindowSeconds int      `json:"requestWindowSeconds"`
+	OutputTokens         int64    `json:"outputTokens"`
+	MaxOutputTokens      int64    `json:"maxOutputTokens"`
 }
 type Model struct {
 	ID           string            `json:"id"`
@@ -113,9 +115,6 @@ func compile(c Config) (*snapshot, error) {
 		return nil, errors.New("listen must be a literal loopback address")
 	}
 	l := &c.Limits
-	if l.Concurrent == 0 {
-		l.Concurrent = 64
-	}
 	if l.BodyBytes == 0 {
 		l.BodyBytes = 32 << 20
 	}
@@ -137,7 +136,7 @@ func compile(c Config) (*snapshot, error) {
 	if l.WriteSeconds == 0 {
 		l.WriteSeconds = 30
 	}
-	if l.Concurrent < 1 || l.Concurrent > 4096 || l.BodyBytes < 1 || l.BodyBytes > 32<<20 || l.MemoryBytes < l.BodyBytes || l.MemoryBytes > 2<<30 || l.EventBytes < 128 || l.EventBytes > 4<<20 || l.ResponseBytes < 128 || l.ResponseBytes > 64<<20 || l.OutputBytes < 128 || l.OutputBytes > 1<<30 || l.RequestSeconds < 1 || l.RequestSeconds > 1800 || l.WriteSeconds < 1 || l.WriteSeconds > 120 {
+	if l.Concurrent < 0 || l.BodyBytes < 1 || l.BodyBytes > 32<<20 || l.MemoryBytes < l.BodyBytes || l.MemoryBytes > 2<<30 || l.EventBytes < 128 || l.EventBytes > 4<<20 || l.ResponseBytes < 128 || l.ResponseBytes > 64<<20 || l.OutputBytes < 128 || l.OutputBytes > 1<<30 || l.RequestSeconds < 1 || l.RequestSeconds > 1800 || l.WriteSeconds < 1 || l.WriteSeconds > 120 {
 		return nil, errors.New("invalid resource limits")
 	}
 	if len(c.Keys) > 1000 || len(c.Models) > 10000 || len(c.Upstreams) == 0 || len(c.Upstreams) > 64 {
@@ -213,7 +212,7 @@ func compile(c Config) (*snapshot, error) {
 	for i := range s.cfg.Keys {
 		k := &s.cfg.Keys[i]
 		b, e := hex.DecodeString(k.Digest)
-		if e != nil || len(b) != 32 || !validID.MatchString(k.ID) || s.byID[k.ID] != nil || k.Concurrent < 0 || k.Concurrent > l.Concurrent || k.OutputTokens < 0 || k.OutputTokens > 1<<50 || k.MaxOutputTokens < 0 || k.MaxOutputTokens > 1<<30 || (k.Mode != "all" && k.Mode != "selected") || (k.OutputTokens > 0 && k.MaxOutputTokens == 0) {
+		if e != nil || len(b) != 32 || !validID.MatchString(k.ID) || s.byID[k.ID] != nil || k.Concurrent < 0 || (l.Concurrent > 0 && k.Concurrent > l.Concurrent) || k.RequestLimit < 0 || k.RequestLimit > 1<<50 || k.RequestWindowSeconds < 0 || k.RequestWindowSeconds > 31536000 || (k.RequestLimit > 0 && k.RequestWindowSeconds < 60) || k.OutputTokens < 0 || k.OutputTokens > 1<<50 || k.MaxOutputTokens < 0 || k.MaxOutputTokens > 1<<30 || (k.Mode != "all" && k.Mode != "selected") || (k.OutputTokens > 0 && k.MaxOutputTokens == 0) {
 			return nil, errors.New("invalid key metadata")
 		}
 		var digest [32]byte

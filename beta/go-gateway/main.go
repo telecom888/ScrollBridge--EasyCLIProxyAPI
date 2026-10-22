@@ -233,7 +233,7 @@ func run() error {
 	}
 	go watch(ctx, g, load, wakes)
 	errors := make(chan error, 1)
-	go func() { errors <- server.Serve(limitConnections(listener, max(128, s.cfg.Limits.Concurrent*4))) }()
+	go func() { errors <- server.Serve(listener) }()
 	slog.Info("Go gateway beta ready", "listen", server.Addr, "version", s.cfg.Version)
 	select {
 	case <-ctx.Done():

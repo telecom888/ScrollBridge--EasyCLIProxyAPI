@@ -1,7 +1,7 @@
 {
   "name": "scrollbridge",
   "productName": "卷桥",
-  "version": "0.3.7",
+  "version": "0.3.8",
   "description": "本地模型服务的域名与 HTTPS 隧道桌面工具",
   "author": "telecom888",
   "license": "MIT",
@@ -11,9 +11,11 @@
     "test": "node --test tests/*.test.cjs",
     "check": "node scripts/check.cjs",
     "vendor": "node scripts/vendor.cjs",
-    "dist": "npm run check && npm test && node scripts/build-desktop.cjs both",
+    "dist": "npm run check && npm test && npm run test:go && node scripts/build-desktop.cjs go",
     "dist:node": "node scripts/build-desktop.cjs node",
-    "dist:go": "node scripts/build-desktop.cjs go"
+    "dist:go": "node scripts/build-desktop.cjs go",
+    "dist:both": "node scripts/build-desktop.cjs both",
+    "test:go": "node scripts/test-go.cjs"
   },
   "dependencies": {
     "busboy": "1.6.0",
@@ -60,5 +62,6 @@
       "unpackDirName": true,
       "artifactName": "ScrollBridge-${version}-win-x64.exe"
     }
-  }
+  },
+  "gatewayEngine": "go"
 }

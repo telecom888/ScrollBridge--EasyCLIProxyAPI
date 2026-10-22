@@ -52,3 +52,20 @@ test('discovery credentials change on restart and close does not remove another 
   const replacement=await startManagementAPI({directory:path.dirname(f.filename),invoke:async()=>({}),version:'test'});
   assert.notEqual(JSON.parse(fs.readFileSync(f.filename)).token,oldToken);replacement.close();
 });
+test('request logs filter by stable key IDs before limit; empty selection means all',async t=>{
+ const records=[{keyId:'a',keyName:'重复名称',status:200},{keyId:'b',keyName:'重复名称',status:429},{status:401},{keyId:'deleted',status:200}];
+ const f=await fixture(t,async()=>({records,logs:[{text:'tunnel'}]}));
+ const items=async route=>(await(await f.request(route)).json()).data.items;
+ assert.deepEqual(await items('/logs'),records);
+ assert.deepEqual(await items('/logs?keyId=b&limit=1'),[records[1]]);
+ assert.deepEqual(await items('/logs?keyId=b&keyId=deleted'),[records[1],records[3]]);
+ assert.deepEqual(await items('/logs?keyId=unknown'),[]);
+ assert.equal((await f.request('/logs?keyId=')).status,400);
+ assert.equal((await f.request('/logs?kind=tunnel&keyId=a')).status,400);
+});
+test('key management API forwards optional concurrency and period limits',async t=>{
+ const seen=[],f=await fixture(t,async(action,payload)=>{seen.push({action,payload});return {keys:[{id:'key',...payload}]};});
+ const payload={name:'手机',mode:'all',concurrent:3,requestLimit:100,requestWindowSeconds:7200};
+ for(const [route,method]of [['/keys','POST'],['/keys/key','PUT']])assert.equal((await f.request(route,{method,headers:{'content-type':'application/json'},body:JSON.stringify(payload)})).status,200);
+ assert.deepEqual(seen[0],{action:'saveKey',payload});assert.deepEqual(seen[1].payload,{...payload,id:'key'});
+});

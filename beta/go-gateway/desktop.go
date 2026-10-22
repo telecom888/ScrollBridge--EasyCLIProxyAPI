@@ -64,7 +64,7 @@ func runDesktop(state string) error {
 		return errors.New("网关端口无法监听")
 	}
 	result := make(chan error, 1)
-	go func() { result <- server.Serve(limitConnections(listener, max(128, s.cfg.Limits.Concurrent*4))) }()
+	go func() { result <- server.Serve(listener) }()
 	defer func() {
 		g.stale.Store(true)
 		g.mu.Lock()
@@ -124,17 +124,24 @@ func runDesktop(state string) error {
 // Unwrap retains Flush/deadline support. Hijack is needed by the WS upgrader.
 type recordWriter struct {
 	http.ResponseWriter
-	status int
+	status       int
+	writeSeconds int
 }
 
 func (w *recordWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 func (w *recordWriter) WriteHeader(n int) {
 	if w.status == 0 {
+		if w.writeSeconds > 0 {
+			_ = http.NewResponseController(w.ResponseWriter).SetWriteDeadline(time.Now().Add(time.Duration(w.writeSeconds) * time.Second))
+		}
 		w.status = n
 	}
 	w.ResponseWriter.WriteHeader(n)
 }
 func (w *recordWriter) Write(b []byte) (int, error) {
+	if w.writeSeconds > 0 {
+		_ = http.NewResponseController(w.ResponseWriter).SetWriteDeadline(time.Now().Add(time.Duration(w.writeSeconds) * time.Second))
+	}
 	if w.status == 0 {
 		w.WriteHeader(200)
 	}

@@ -1,6 +1,6 @@
 # 卷桥本机管理 API
 
-普通版和 beta 版在桌面程序运行时自动提供。API 与 UI 共用配置、运行状态和操作锁；仅监听 `127.0.0.1`，不接入公网隧道。
+Go 主线桌面程序运行时自动提供。API 与 UI 共用配置、运行状态和操作锁；仅监听 `127.0.0.1`，不接入公网隧道。
 
 ## 大模型代理的操作约定
 
@@ -67,8 +67,12 @@ Invoke-RestMethod -Uri "$($bridge.baseUrl)/api/v1/status" -Headers $headers
 创建密钥示例：
 
 ```json
-{"name":"手机","enabled":true,"mode":"all","allowed":[]}
+{"name":"手机","enabled":true,"mode":"all","allowed":[],"concurrent":3,"requestLimit":100,"requestWindowSeconds":7200}
 ```
+
+`concurrent:0` 关闭该密钥并发限制；`requestLimit:0` 关闭周期限额。`requestWindowSeconds` 为 60–31536000 秒，桌面按分钟或小时设置。省略限制字段时，创建默认为关闭，编辑保留已有值。周期从首个有效模型请求开始，计数在当前网关进程内保存；热更新保留计数，停止并重启连接后重新计数。模型请求通过鉴权、模型权限及正文校验后计数，上游失败仍计数；健康检测、模型列表及限流拒绝不计入；公网检测中的实际模型生成请求会计数。HTTP 请求及 WebSocket 每次生成共享该密钥的限额，WS 空闲连接不占生成并发名额。
+
+日志查询省略 `keyId` 返回全部；单个密钥用 `/logs?keyId=内部ID`，多个密钥重复参数 `/logs?keyId=ID1&keyId=ID2`。先筛选再取 `limit` 条，按内部 ID 匹配，重命名或删除密钥不影响保留记录的筛选。没有通过鉴权的请求无法归属某个密钥，仅出现在全部查询中。
 
 修改密钥需填写 `name`。`mode` 为 `selected` 时，`allowed` 填写 `/models` 中的 `entries[].id`，不是模型名称；全局权限始终优先。编辑别名时保留原条目的 `id`，可保留已有授权；省略 `id` 表示新建别名。
 

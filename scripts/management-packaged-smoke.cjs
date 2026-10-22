@@ -1,7 +1,7 @@
 const {_electron:electron}=require('playwright');
 const fs=require('node:fs'),path=require('node:path'),assert=require('node:assert/strict');
 const {spawn}=require('node:child_process');
-(async()=>{for(const engine of ['node','go']){
+(async()=>{for(const engine of (process.argv.includes('--both')?['node','go']:['go'])){
   const builds=process.argv[2]&&process.argv[3]?{node:process.argv[2],go:process.argv[3]}:JSON.parse(fs.readFileSync('.test-output/desktop-builds.json','utf8'));
   const profile=path.resolve(`.test-output/management-packaged-${engine}-${Date.now()}`),env={...process.env,SCROLLBRIDGE_TEST_DATA:profile};delete env.ELECTRON_RUN_AS_NODE;delete env.SCROLLBRIDGE_GATEWAY_ENGINE;
   let app;

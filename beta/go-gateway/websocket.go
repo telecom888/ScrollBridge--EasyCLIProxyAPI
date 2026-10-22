@@ -21,6 +21,7 @@ type wsTurn struct {
 	reserved      int64
 	began         time.Time
 	settled       bool
+	flight        *flight
 }
 
 func (g *gateway) serveWebSocket(w http.ResponseWriter, r *http.Request, s *snapshot, k *Key) {
@@ -34,7 +35,7 @@ func (g *gateway) serveWebSocket(w http.ResponseWriter, r *http.Request, s *snap
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), time.Duration(s.cfg.Limits.RequestSeconds)*time.Second)
 	defer cancel()
-	f := &flight{cancel: cancel, keyID: k.ID, version: s.cfg.Version}
+	f := &flight{cancel: cancel, keyID: k.ID, version: s.cfg.Version, session: true}
 	if !g.acquire(k, s, f) {
 		problem(w, 429, "connection limit")
 		return
@@ -128,6 +129,14 @@ func (g *gateway) serveWebSocket(w http.ResponseWriter, r *http.Request, s *snap
 	defer close(closed)
 	var mu sync.Mutex
 	pending := []*wsTurn{}
+	turns := map[*flight]bool{}
+	defer func() {
+		mu.Lock()
+		defer mu.Unlock()
+		for f := range turns {
+			g.release(f)
+		}
+	}()
 	responses := map[string]*wsTurn{}
 	responseOrder := []string{}
 	emit := func(turn *wsTurn, u usage, status int) {
@@ -197,26 +206,37 @@ func (g *gateway) serveWebSocket(w http.ResponseWriter, r *http.Request, s *snap
 						}
 						if turn != nil {
 							rewrite(v, turn.entry.Actual, turn.requested)
-							if eventType == "response.completed" && !turn.settled {
+							if (eventType == "response.completed" || eventType == "response.failed" || eventType == "response.incomplete" || eventType == "response.cancelled" || eventType == "error") && !turn.settled {
 								turn.settled = true
-								u := usage{Complete: true}
+								g.release(turn.flight)
+								delete(turns, turn.flight)
+								u := usage{Complete: eventType == "response.completed"}
 								observe(v, &u)
 								if turn.entry.Billing.Enabled {
 									observeCost(v, &u, turn.entry.Billing.UsageCostPointer)
 								}
-								if turn.reserved > 0 && u.Found && u.Tokens <= turn.reserved {
+								if u.Complete && turn.reserved > 0 && u.Found && u.Tokens <= turn.reserved {
 									if g.ledger.Refund(k.ID, turn.reserved-u.Tokens) != nil {
 										g.auditFailed.Store(true)
 										cancel()
 									}
 								}
-								emit(turn, u, 200)
+								code := 502
+								if u.Complete {
+									code = 200
+								}
+								emit(turn, u, code)
 							}
 						}
 						if eventType == "error" && len(pending) > 0 {
 							turn := pending[0]
 							pending = pending[1:]
-							emit(turn, usage{}, 502)
+							if !turn.settled {
+								turn.settled = true
+								emit(turn, usage{}, 502)
+								g.release(turn.flight)
+								delete(turns, turn.flight)
+							}
 						}
 						mu.Unlock()
 						out, _ = json.Marshal(v)
@@ -309,6 +329,20 @@ func (g *gateway) serveWebSocket(w http.ResponseWriter, r *http.Request, s *snap
 				sendError(code, "Invalid or unavailable model")
 				continue
 			}
+			turnFlight := &flight{cancel: cancel, keyID: k.ID, model: requested, version: policy.cfg.Version}
+			if !g.acquire(k, policy, turnFlight) {
+				mu.Unlock()
+				release()
+				sendError(429, "Key concurrency limit reached")
+				continue
+			}
+			if retry := g.takeRequest(k, time.Now()); retry > 0 {
+				g.release(turnFlight)
+				mu.Unlock()
+				release()
+				sendError(429, "Key request limit reached")
+				continue
+			}
 			body["model"] = entry.Actual
 			if nestedExplicit {
 				nested["model"] = entry.Actual
@@ -322,6 +356,7 @@ func (g *gateway) serveWebSocket(w http.ResponseWriter, r *http.Request, s *snap
 				e = g.ledger.Reserve(k.ID, reserved, k.OutputTokens)
 			}
 			if e != nil {
+				g.release(turnFlight)
 				mu.Unlock()
 				release()
 				sendError(429, "Quota unavailable or invalid ceiling")
@@ -329,7 +364,8 @@ func (g *gateway) serveWebSocket(w http.ResponseWriter, r *http.Request, s *snap
 			}
 			idBytes := make([]byte, 16)
 			_, _ = rand.Read(idBytes)
-			turn := &wsTurn{entry: entry, requested: requested, id: hex.EncodeToString(idBytes), reserved: reserved, began: time.Now()}
+			turn := &wsTurn{entry: entry, requested: requested, id: hex.EncodeToString(idBytes), reserved: reserved, began: time.Now(), flight: turnFlight}
+			turns[turnFlight] = true
 			pending = append(pending, turn)
 			selected = entry
 			current = requested

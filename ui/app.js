@@ -120,7 +120,26 @@ function renderDiagnosticModels() {
 document.querySelectorAll('[data-bind-tab]').forEach(el => el.onclick = () => { if(el.classList.contains('active')) return; moveSelection(el.parentElement, el); $('manual-binding').hidden = el.dataset.bindTab !== 'manual'; $('automatic-binding').hidden = el.dataset.bindTab !== 'automatic'; reveal(el.dataset.bindTab === 'manual' ? $('manual-binding') : $('automatic-binding')); });
 $('automatic-binding').onsubmit = e => { e.preventDefault(); task(e.submitter, async () => { if (dirty) { toast('请先返回连接页保存域名', true); return; } try { const r = await call('bind', {apiToken:$('cf-token').value,accountId:$('cf-account').value.trim(),zoneId:$('cf-zone').value.trim()}); render(await call('snapshot')); toast(r.message); } finally { $('cf-token').value = ''; } }); };
 for (const [id, action] of [['cloudflare','openCloudflare'],['guide','openGuide'],['open-data','openData']]) $(id).onclick = () => task(null, () => call(action));
-document.querySelectorAll('[data-record-tab]').forEach(el => el.onclick = () => { if(el.classList.contains('active')) return; moveSelection(el.parentElement, el); $('requests-table').hidden = el.dataset.recordTab !== 'requests'; $('tunnel-logs').hidden = el.dataset.recordTab !== 'tunnel'; reveal(el.dataset.recordTab === 'requests' ? $('requests-table') : $('tunnel-logs')); });
+document.querySelectorAll('[data-record-tab]').forEach(el => el.onclick = () => { if(el.classList.contains('active')) return; moveSelection(el.parentElement, el); $('requests-table').hidden = el.dataset.recordTab !== 'requests'; $('record-key-filters').hidden=el.dataset.recordTab !== 'requests'; $('tunnel-logs').hidden = el.dataset.recordTab !== 'tunnel'; reveal(el.dataset.recordTab === 'requests' ? $('requests-table') : $('tunnel-logs')); });
+const recordKeySelection=new Set();
+$('record-filter-mode').onchange=renderRecords;
+$('record-key-single').onchange=renderRecords;
+function filteredRecords() {
+  // Retain IDs from recent records so a renamed/deleted key can still be queried.
+  const choices=new Map(snapshot.keys.map(key=>[key.id,key.name]));
+  for(const record of snapshot.records)if(record.keyId && !choices.has(record.keyId))choices.set(record.keyId,record.keyName || '已删除的密钥');
+  const single=$('record-key-single'),selected=single.value;
+  replaceContent(single,[...choices].map(([id,name])=>`<option value="${escapeHTML(id)}">${escapeHTML(name)}</option>`).join('') || '<option value="">暂无密钥</option>');
+  if(choices.has(selected))single.value=selected;
+  const mode=$('record-filter-mode').value;
+  $('record-single-field').hidden=mode!=='single';$('record-multiple-field').hidden=mode!=='multiple';
+  replaceContent($('record-key-choices'),[...choices].map(([id,name])=>`<label><input type="checkbox" value="${escapeHTML(id)}" ${recordKeySelection.has(id)?'checked':''}><span>${escapeHTML(name)}</span></label>`).join('') || '<p class="note">暂无密钥</p>');
+  for(const input of $('record-key-choices').querySelectorAll('input'))input.onchange=()=>{if(input.checked)recordKeySelection.add(input.value);else recordKeySelection.delete(input.value);renderRecords();};
+  $('record-selection-summary').textContent=`已选择 ${[...recordKeySelection].filter(id=>choices.has(id)).length} 个密钥`;
+  const records=snapshot.records.filter(row=>mode==='all' || (mode==='single'?!!single.value && row.keyId===single.value:recordKeySelection.has(row.keyId)));
+  $('record-filter-count').textContent=`${records.length} 条请求`;
+  return records;
+}
 const escapeHTML = value => String(value).replace(/[&<>"']/g, x => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[x]));
 const time = value => new Date(value).toLocaleTimeString('zh-CN', {hour12:false});
 function descriptionRows(items) { return `<dl class="information-list">${items.map(([label,value])=>`<div><dt>${escapeHTML(label)}</dt><dd>${escapeHTML(String(value))}</dd></div>`).join('')}</dl>`; }
@@ -136,12 +155,12 @@ function renderDiagnostics() {
   }
 }
 function renderRecords() {
-  const requests=$('requests-table');
-  if (!snapshot.records.length) replaceContent(requests,`<div class="empty">${icon('file')}暂无请求</div>`);
+  const requests=$('requests-table'),records=filteredRecords();
+  if (!records.length) replaceContent(requests,`<div class="empty">${icon('file')}${$('record-filter-mode').value==='all'?'暂无请求':'所选密钥暂无请求'}</div>`);
   else {
     if(!requests.querySelector('tbody')) requests.innerHTML='<table><thead><tr><th>时间</th><th>密钥</th><th>方法</th><th>模型</th><th>路径</th><th>状态</th><th>耗时</th>'+(snapshot.features?.billing?'<th>费用</th>':'')+'</tr></thead><tbody></tbody></table>';
     const occurrences=new Map();
-    const rows=snapshot.records.map(r=>{
+    const rows=records.map(r=>{
       const signature=JSON.stringify([r.time,r.keyId,r.method,r.model,r.actualModel,r.path,r.status,r.ms]);
       const count=occurrences.get(signature)||0; occurrences.set(signature,count+1);
       const cost=r.billing? r.billing.amount!==undefined?`${r.billing.amount} ${r.billing.currency}${r.billing.complete?'':'（未完成）'}`:'未提供':'—';

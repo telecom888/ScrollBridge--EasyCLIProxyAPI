@@ -15,7 +15,7 @@ function renderManagement() {
   // A removed/disabled diagnostic selection must not silently become a different key.
   if(!snapshot.config.diagnosticKeyId)$('diagnostic-key').value='';
   if(!keyEditorInitialized || !keyCreating && editingKeyId && !snapshot.keys.some(key=>key.id===editingKeyId))populateKeyEditor(snapshot.keys[0]?.id || null);
-  const active=snapshot.keys.find(key=>key.id===editingKeyId),signature=JSON.stringify([active?.id,active?.name,active?.enabled,active?.mode,active?.allowed]);
+  const active=snapshot.keys.find(key=>key.id===editingKeyId),signature=JSON.stringify([active?.id,active?.name,active?.enabled,active?.mode,active?.allowed,active?.concurrent,active?.requestLimit,active?.requestWindowSeconds]);
   const modelsSignature=JSON.stringify(snapshot.modelEntries);
   if(keyEditorVisible && !keyCreating && !keyDirty && editorFingerprint!==signature)populateKeyEditor(editingKeyId);
   else if(keyEditorVisible && entryFingerprint!==modelsSignature){entryFingerprint=modelsSignature;renderPermissionChoices();}
@@ -50,17 +50,32 @@ function populateKeyEditor(id,creating=false) {
   const key=snapshot.keys.find(row=>row.id===id);editingKeyId=key?.id || null;keyCreating=creating;keyDirty=false;keyEditorInitialized=true;keyEditorVisible=creating || !!key;
   $('key-editor-title').textContent=creating?'新建密钥':'编辑密钥';
   $('key-name').value=key?.name || '';$('key-enabled').checked=key?.enabled ?? true;$('key-all').checked=!key || key.mode==='all';
+  $('key-concurrent-enabled').checked=!!key?.concurrent;$('key-concurrent').value=key?.concurrent || 10;
+  $('key-rate-enabled').checked=!!key?.requestLimit;$('key-request-limit').value=key?.requestLimit || 100;
+  const seconds=key?.requestWindowSeconds || 3600,unit=seconds%3600===0?3600:60;
+  $('key-window-unit').value=String(unit);$('key-window-value').value=seconds/unit;renderKeyLimitFields();
   permissionSelection=new Set(key?.mode==='selected'?key.allowed:(snapshot.modelEntries || []).map(row=>row.id));
-  editorFingerprint=JSON.stringify([key?.id,key?.name,key?.enabled,key?.mode,key?.allowed]);entryFingerprint=JSON.stringify(snapshot.modelEntries);
+  editorFingerprint=JSON.stringify([key?.id,key?.name,key?.enabled,key?.mode,key?.allowed,key?.concurrent,key?.requestLimit,key?.requestWindowSeconds]);entryFingerprint=JSON.stringify(snapshot.modelEntries);
   $('permission-search').value='';renderPermissionChoices();$('key-permissions').scrollTop=0;document.querySelector('.key-editor-body').scrollTop=0;updateKeyEditorControls();
 }
 function updateKeyEditorControls() {
   $('key-form').hidden=!keyEditorVisible;$('key-editor-empty').hidden=keyEditorVisible;
   $('key-draft-status').hidden=!keyDirty;
   $('key-form').querySelector('[type=submit]').disabled=keySaving || !keyCreating && !keyDirty;
-  for(const id of ['key-name','key-enabled','key-all','permission-search','cancel-key-edit','close-key-editor','new-key'])$(id).disabled=keySaving;
+  for(const id of ['key-name','key-enabled','key-all','permission-search','cancel-key-edit','close-key-editor','new-key','key-concurrent-enabled','key-concurrent','key-rate-enabled','key-request-limit','key-window-value','key-window-unit'])$(id).disabled=keySaving;
+  renderKeyLimitFields();
   $('key-form').setAttribute('aria-busy',String(keySaving));
   for(const input of $('key-permissions').querySelectorAll('input'))input.disabled=keySaving || input.dataset.blocked==='true';
+}
+function renderKeyLimitFields() {
+  const available=!!snapshot.features?.keyLimits,concurrent=available && $('key-concurrent-enabled').checked,rate=available && $('key-rate-enabled').checked;
+  $('key-limits').hidden=!available;
+  $('key-concurrent-field').hidden=!concurrent;
+  $('key-concurrent').required=concurrent;$('key-concurrent').disabled=keySaving || !concurrent;
+  $('key-rate-fields').hidden=!rate;
+  for(const id of ['key-request-limit','key-window-value']){$(id).required=rate;$(id).disabled=keySaving || !rate;}
+  $('key-window-unit').disabled=keySaving || !rate;
+  $('key-window-value').max=31536000/Number($('key-window-unit').value);
 }
 function markKeyDirty(){keyDirty=true;updateKeyEditorControls();}
 function requestKeyTransition(action) {
@@ -115,6 +130,8 @@ function initManagement() {
   $('diagnostic-key').onchange=()=>task($('diagnostic-key'),async()=>{try{render(await call('save',{config:{diagnosticKeyId:$('diagnostic-key').value,diagnosticModel:''}}));}finally{render(await call('snapshot'));}});
   $('new-key').onclick=()=>openKeyEditor();
   $('new-key-empty').onclick=()=>openKeyEditor();$('key-name').oninput=markKeyDirty;$('key-enabled').onchange=markKeyDirty;
+  for(const id of ['key-concurrent-enabled','key-rate-enabled'])$(id).onchange=()=>{renderKeyLimitFields();markKeyDirty();};
+  for(const id of ['key-concurrent','key-request-limit','key-window-value','key-window-unit'])$(id).oninput=()=>{renderKeyLimitFields();markKeyDirty();};
   $('key-search').oninput=()=>{$('key-menu').hidePopover();renderManagement();};
   $('close-key-editor').onclick=()=>requestKeyTransition(()=>{keyEditorVisible=false;keyDirty=false;renderManagement();});
   $('cancel-key-edit').onclick=()=>{populateKeyEditor(keyCreating?snapshot.keys[0]?.id:editingKeyId);renderManagement();};
@@ -136,6 +153,11 @@ function initManagement() {
     const previous=new Set(snapshot.keys.map(key=>key.id)),target=editingKeyId;
     const valid=new Set(snapshot.config.modelRules.flatMap(rule=>[rule.originalId,...rule.aliases.map(alias=>alias.id)]));
     const payload={id:target,name:$('key-name').value,enabled:$('key-enabled').checked,mode:$('key-all').checked?'all':'selected',allowed:[...permissionSelection].filter(id=>valid.has(id))};
+    if(snapshot.features?.keyLimits)Object.assign(payload,{
+      concurrent:$('key-concurrent-enabled').checked?Number($('key-concurrent').value):0,
+      requestLimit:$('key-rate-enabled').checked?Number($('key-request-limit').value):0,
+      requestWindowSeconds:$('key-rate-enabled').checked?Number($('key-window-value').value)*Number($('key-window-unit').value):(snapshot.keys.find(key=>key.id===target)?.requestWindowSeconds || 3600)
+    });
     keySaving=true;updateKeyEditorControls();
     try{
       const state=await call('saveKey',payload);snapshot=state;keyDirty=false;

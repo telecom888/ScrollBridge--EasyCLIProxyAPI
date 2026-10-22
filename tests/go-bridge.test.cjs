@@ -7,3 +7,13 @@ test('Go bridge sends digests and independent grants without changing policy for
  const blocked=toGoConfig({...c,disabledModels:['vendor/model:latest']},secrets,2);assert.equal(blocked.models[0].enabled,false);assert.equal(toGoConfig({...c,knownModels:[]},secrets,2).models[0].available,false);
 });
 test('fees validate decimal rates and preserve the usage-price switch',()=>{let c=validateConfig({});c.billing={...c.billing,enabled:true,readUsagePrice:true,rates:{inputPerMillion:'2',outputPerMillion:'8',cachedInputPerMillion:'0.5'}};assert.equal(validateConfig(c).billing.readUsagePrice,true);for(const invalid of ['-1','NaN','1.1234567890','1e6'])assert.throws(()=>validateConfig({...c,billing:{...c.billing,rates:{...c.billing.rates,inputPerMillion:invalid}}}),/费用设置无效/);});
+test('optional key limits validate, default off and reach the Go core unchanged',()=>{
+ const key=newKey('手机'),config=validateConfig({accessKeys:[key]}),secrets={keyValues:{[key.id]:createAccessKey()}};
+ assert.equal(config.accessKeys[0].concurrent,0);assert.equal(config.accessKeys[0].requestLimit,0);
+ Object.assign(key,{concurrent:9000,requestLimit:123,requestWindowSeconds:1800});
+ const out=toGoConfig(validateConfig(config),secrets);
+ assert.equal(out.keys[0].concurrent,9000);assert.equal(out.keys[0].requestLimit,123);assert.equal(out.keys[0].requestWindowSeconds,1800);
+ for(const [field,value]of [['concurrent',-1],['concurrent',1.5],['requestLimit',-1],['requestLimit',NaN],['requestWindowSeconds',59],['requestWindowSeconds',Infinity]]){
+   const invalid=structuredClone(config);invalid.accessKeys[0][field]=value;assert.throws(()=>validateConfig(invalid),/密钥限制无效/);
+ }
+});
