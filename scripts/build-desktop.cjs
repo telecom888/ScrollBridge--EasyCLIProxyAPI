@@ -27,7 +27,9 @@ const builder=require('electron-builder');
   // the type documentation claiming otherwise. See portable-duplicate-smoke.
   const config={...JSON.parse(JSON.stringify(require('../package.json').build)),directories:{output:buildDir},afterPack:'scripts/packaging-hooks.cjs',extraMetadata:{gatewayEngine:engine,version},extraResources:[{from:'vendor',to:'vendor',filter:engine==='go'?['cloudflared.exe','scrollbridge-gateway.exe']:['cloudflared.exe']}],artifactName:`ScrollBridge-${version}-win-x64.zip`,portable:{artifactName:`ScrollBridge-${version}-win-x64.exe`,unpackDirName:true},nsis:{oneClick:false,perMachine:false,allowElevation:false,allowToChangeInstallationDirectory:true,runAfterFinish:false,deleteAppDataOnUninstall:false,include:'design/installer.nsh',artifactName:`ScrollBridge-Setup-${version}-win-x64.exe`}};
   const configFile=buildDir+'.json';fs.writeFileSync(configFile,JSON.stringify(config,null,2));
-  await builder.build({projectDir:root,targets:builder.Platform.WINDOWS.createTarget(['portable','nsis','zip'],builder.Arch.x64),config:configFile});
+  // Publishing is owned by the release workflow after all packages and the
+  // checksum manifest exist. Never let a CI tag enable builder's publisher.
+  await builder.build({projectDir:root,targets:builder.Platform.WINDOWS.createTarget(['portable','nsis','zip'],builder.Arch.x64),config:configFile,publish:'never'});
   for(const name of [`ScrollBridge-${version}-win-x64.exe`,`ScrollBridge-Setup-${version}-win-x64.exe`,`ScrollBridge-${version}-win-x64.zip`])fs.copyFileSync(path.join(buildDir,name),path.join(root,'release',name));
  }
  const manifestPath=path.join(root,'.test-output','desktop-builds.json');let previous={};try{previous=JSON.parse(fs.readFileSync(manifestPath,'utf8'))}catch{};fs.writeFileSync(manifestPath,JSON.stringify({...previous,...builds},null,2));
