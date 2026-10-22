@@ -47,7 +47,7 @@ function page(name) {
 document.querySelectorAll('[data-page]').forEach(el => el.onclick = () => page(el.dataset.page));
 function applyTheme(theme) { const resolved = theme === 'system' ? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : theme; document.documentElement.dataset.theme = resolved; $('theme-toggle').innerHTML = icon(resolved === 'dark' ? 'sun' : 'moon'); document.querySelectorAll('[data-theme]').forEach(el => el.classList.toggle('active', el.dataset.theme === theme)); }
 matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { if (snapshot?.config.theme === 'system') applyTheme('system'); });
-function fillForm(s) { for (const k of ['upstream','port','hostname']) $(k).value = s.config[k]; $('upstreamKey').placeholder = s.hasUpstreamKey ? '已保存，留空则保持不变' : '本地代理的客户端 API Key'; $('tunnelToken').placeholder = s.hasTunnelToken ? '已保存，留空则保持不变' : '粘贴 eyJ 开头的令牌'; $('transport').value = s.config.protocol; $('launchAtLogin').checked = s.config.launchAtLogin; }
+function fillForm(s) { for (const k of ['upstream','port','hostname']) $(k).value = s.config[k]; $('upstreamKey').placeholder = s.hasUpstreamKey ? '已保存，留空则保持不变' : '本地代理的客户端 API Key'; $('tunnelToken').placeholder = s.hasTunnelToken ? '已保存，留空则保持不变' : '粘贴 eyJ 开头的令牌'; $('transport').value = s.config.protocol;  }
 function render(s) {
   snapshot = s; applyTheme(s.config.theme); if (!dirty) fillForm(s);
   const titles = { stopped:'未连接', starting:'正在连接', connected:'隧道已连接', reconnecting:'正在重连', error:'连接异常' };
@@ -56,6 +56,9 @@ function render(s) {
   const running = ['starting','connected','reconnecting'].includes(s.status) || s.gatewayRunning;
   $('connect-label').textContent = running ? '停止连接' : (s.status === 'error' ? '停止并重置' : '启动连接'); $('connect').querySelector('[data-icon]').innerHTML = icon(running || s.status === 'error' ? 'stop' : 'play');
   for (const id of lockedControls) { $(id).disabled = running; lockHints.get(id).hidden = !running; }
+  $('launchAtLogin').checked=s.startup?.enabled===true;
+  if(s.startup?.error || s.startup?.supported===false)$('launchAtLogin').disabled=true;
+  $('startup-status').textContent=s.startup?.error || (s.startup?.disabledBySystem?'已在 Windows 中禁用，开启后重新启用':s.startup?.registered===false && s.config.launchAtLogin?'启动项不存在，请重新开启':'登录 Windows 后打开应用，连接需手动启动');
   $('route-upstream').textContent = s.config.upstream.replace(/^https?:\/\//,''); $('route-host').textContent = s.config.hostname || '尚未配置'; $('public-base').textContent = s.config.hostname ? `https://${s.config.hostname}` : '请先配置域名'; $('origin-service').textContent = `http://127.0.0.1:${s.config.port}`;
   $('imagesEnabled').checked = s.config.imagesEnabled;
   $('geminiImageCompatibility').checked = s.config.geminiImageCompatibility;
@@ -99,7 +102,7 @@ $('rotate-key').textContent='管理密钥';$('rotate-key').onclick = () => page(
 async function changeSetting(patch) { const s = await call('save', {config:patch}); render(s); toast('设置已保存'); }
 $('theme-toggle').onclick = () => task(null, () => changeSetting({theme:document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'}));
 document.querySelectorAll('[data-theme]').forEach(el => el.onclick = () => task(el, () => changeSetting({theme:el.dataset.theme})));
-$('transport').onchange = () => task(null, () => changeSetting({protocol:$('transport').value})); $('launchAtLogin').onchange = () => task(null, () => changeSetting({launchAtLogin:$('launchAtLogin').checked}));
+$('transport').onchange = () => task(null, () => changeSetting({protocol:$('transport').value})); $('launchAtLogin').onchange = () => task(null, async () => { try { await changeSetting({launchAtLogin:$('launchAtLogin').checked}); } finally { render(await call('snapshot')); } });
 $('imagesEnabled').onchange = () => task($('imagesEnabled'), async () => { try { await changeSetting({imagesEnabled:$('imagesEnabled').checked}); } finally { render(await call('snapshot')); } });
 $('geminiImageCompatibility').onchange = () => task($('geminiImageCompatibility'), async () => { try { await changeSetting({geminiImageCompatibility:$('geminiImageCompatibility').checked}); } finally { render(await call('snapshot')); } });
 let billingDirty=false;

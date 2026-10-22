@@ -158,6 +158,8 @@ ZIP 解压后运行文件夹内的 `卷桥.exe`，需保留同目录的其他运
 
 GitHub Actions 使用仓库 Secret `SCROLLBRIDGE_UPDATE_SIGNING_KEY` 签名。Windows 本地构建可使用同名环境变量，或读取 `%LOCALAPPDATA%\ScrollBridge-Release\update-signing-private.pem`。私钥不进入 Git 或安装包；发布维护者应在仓库之外备份私钥，不能在每次构建时重新生成，否则已安装的程序无法验证后续版本。缺少私钥或公私钥不匹配时，打包会报错而不会生成可发布的无签名清单。
 
+开机启动开关读取当前可执行文件在 Windows 中的实际状态，窗口重新获得焦点时刷新。程序启动时只读取、不重新启用被系统禁用的启动项；移动文件后若启动项失效，可重新打开开关注册新位置。开启或关闭时先修改并确认系统状态，再保存配置；保存失败时恢复原启动项。启动项读取失败会在设置中提示，不阻止窗口打开。`node scripts/startup-smoke.cjs` 使用独立名称验证 Windows 实际注册和清理，以及桌面异常处理，不修改生产启动项。
+
 ## 参考与许可
 
 UI 先用内置 ImageGen 生成参考，再实现原生代码界面。参考图、完整提示词与实际截图位于 `design/`。三家公司标识来自 GitHub Lobe Icons，保留 MIT 许可证；本项目独立于三家公司。

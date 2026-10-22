@@ -10,7 +10,7 @@ const assert = require('node:assert/strict');
   const app = await electron.launch({ executablePath: process.argv[2] || require('electron'), args: process.argv[2] ? [] : ['.'], env });
   try {
     // Exercise settings persistence without changing Windows startup registration.
-    await app.evaluate(({ app }) => { app.setLoginItemSettings = () => {}; });
+    await app.evaluate(({ app }) => { let item=null;app.setLoginItemSettings = options => {item=options.openAtLogin?{name:'test',path:options.path,args:[],scope:'user',enabled:options.enabled}:null;};app.getLoginItemSettings=()=>({launchItems:item?[item]:[]}); });
     const page = await app.firstWindow();
     await page.waitForFunction(() => !!window.bridge);
     const initial = await page.evaluate(() => window.bridge.invoke('snapshot'));

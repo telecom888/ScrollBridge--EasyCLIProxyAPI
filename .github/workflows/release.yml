@@ -39,6 +39,8 @@ jobs:
           SCROLLBRIDGE_UPDATE_SIGNING_KEY: ${{ secrets.SCROLLBRIDGE_UPDATE_SIGNING_KEY }}
       - name: Verify Windows update replacement and rollback
         run: node scripts/update-worker-smoke.cjs
+      - name: Verify Windows startup registration and desktop failure handling
+        run: node scripts/startup-smoke.cjs
       - name: Upload three packages and update metadata
         shell: pwsh
         env:

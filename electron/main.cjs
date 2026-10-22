@@ -18,6 +18,7 @@ const {createUpdater,distribution,githubFetch,REPOSITORY}=require('../lib/update
 const {electronFetch}=require('../lib/electron-fetch.cjs');
 const {createInstallJob,launchInstallJob}=require('../lib/update-install.cjs');
 const {readUpdateTicket,acknowledgeUpdate}=require('../lib/update-ticket.cjs');
+const {createStartup}=require('../lib/startup.cjs');
 app.setName('ScrollBridge');
 const configDirectory = dataDirectory({testDirectory:process.env.SCROLLBRIDGE_TEST_DATA,portableFile:process.env.PORTABLE_EXECUTABLE_FILE,packaged:app.isPackaged,executable:app.getPath('exe'),appPath:app.getAppPath()});
 // Both desktop editions and every portable filename share the same identity.
@@ -27,9 +28,9 @@ app.setPath('userData', profileDirectory);
 const ownsProfile = app.requestSingleInstanceLock();
 if (!ownsProfile) app.quit();
 let window, tray, store, config, secrets, gateway, tunnel, closing = false, busy = false;
-let modelRefresh, managementAPI, updater;
+let modelRefresh, managementAPI, updater, startup;
 let status = 'stopped', message = '', records = [], logs = [], localDiagnostic = null, publicDiagnostic = null;
-const view = () => ({ config, keys:config.accessKeys.map(key=>({...key,masked:`${secrets.keyValues[key.id].slice(0,6)}…${secrets.keyValues[key.id].slice(-4)}`})), modelEntries:entries(config),hasUpstreamKey: !!secrets.upstreamKey, hasTunnelToken: !!secrets.tunnelToken, gatewayRunning: !!gateway, status, message, records, logs, localDiagnostic, publicDiagnostic, update:updater?.snapshot(),version: app.getVersion(),features:{billing:gatewayEngine==='go',keyLimits:gatewayEngine==='go'} });
+const view = () => ({ config, keys:config.accessKeys.map(key=>({...key,masked:`${secrets.keyValues[key.id].slice(0,6)}…${secrets.keyValues[key.id].slice(-4)}`})), modelEntries:entries(config),hasUpstreamKey: !!secrets.upstreamKey, hasTunnelToken: !!secrets.tunnelToken, gatewayRunning: !!gateway, status, message, records, logs, localDiagnostic, publicDiagnostic, update:updater?.snapshot(),startup:startup?.snapshot(),version: app.getVersion(),features:{billing:gatewayEngine==='go',keyLimits:gatewayEngine==='go'} });
 async function synchronizeGateway(){try{await gateway?.refreshPolicy();}catch{await stop();state('error','配置已保存，网关更新失败，连接已停止');throw new Error('配置已保存，网关更新失败，请重新连接');}}
 async function commit(next,nextSecrets=secrets) {
   next=validateConfig(next);store.save(next,nextSecrets);config=next;secrets=nextSecrets;
@@ -65,12 +66,15 @@ async function save(payload = {}) {
     if (typeof payload[key] !== 'string' || payload[key].length > 8192 || /[\r\n]/.test(payload[key])) throw new Error('密钥格式不正确');
     nextSecrets[key] = payload[key].trim();
   }
-  const loginChanged=next.launchAtLogin!==config.launchAtLogin;
+  const loginRequested=Object.hasOwn(payload.config || {},'launchAtLogin');
   const refreshChanged=next.modelRefreshMinutes!==config.modelRefreshMinutes;
-  store.save(next, nextSecrets); config = next; secrets = nextSecrets;
+  try{
+    if(loginRequested)startup.change(next.launchAtLogin,()=>store.save(next,nextSecrets));
+    else store.save(next,nextSecrets);
+  }catch(error){publish();throw error;}
+  config = next; secrets = nextSecrets;
   if (payload.config?.diagnosticModel !== undefined || payload.config?.diagnosticKeyId !== undefined) publicDiagnostic = null;
   if (payload.config?.hostname !== undefined || payload.tunnelToken || payload.clearUpstreamKey || payload.upstreamKey || payload.config?.upstream !== undefined) {localDiagnostic=null;publicDiagnostic=null;}
-  if(loginChanged)app.setLoginItemSettings({ openAtLogin:!!config.launchAtLogin,path:process.env.PORTABLE_EXECUTABLE_FILE || app.getPath('exe') });
   if(refreshChanged)modelRefresh?.reschedule();
   await synchronizeGateway();publish(); return view();
 }
@@ -83,7 +87,7 @@ const actions = {
   checkUpdates: () => updater.check(),
   downloadUpdate: () => {void updater.download().catch(e=>log(e.message));return updater.snapshot();},
   installUpdate: () => {void updater.apply().catch(e=>log(e.message));return updater.snapshot();},
-  snapshot: () => view(),
+  snapshot: () => {startup?.refresh();return view();},
   revealKey: payload => {const key=findKey(payload?.id);return {id:key.id,value:secrets.keyValues[key.id]};},
   save,
   copyKey: payload => { const key=findKey(payload?.id);clipboard.writeText(secrets.keyValues[key.id]); return true; },
@@ -192,6 +196,7 @@ async function createWindow() {
   window = new BrowserWindow({ title: '卷桥', show: process.env.SCROLLBRIDGE_SMOKE !== '1', width: 1160, height: 850, minWidth: 960, minHeight: 700, backgroundColor: '#f7f4ed', autoHideMenuBar: true, icon: path.join(app.getAppPath(), 'ui', 'icon.png'), webPreferences: { preload: path.join(__dirname, 'preload.cjs'), nodeIntegration: false, contextIsolation: true, sandbox: true, spellcheck: false } });
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   window.webContents.on('will-navigate', e => e.preventDefault());
+  window.on('focus',()=>{startup?.refresh();publish();});
   await window.loadFile(path.join(app.getAppPath(), 'ui', 'index.html'));
   window.on('close', e => { if (!closing && gateway) { e.preventDefault(); window.hide(); tray.displayBalloon({ title: '卷桥', content: '连接仍在运行，可从托盘退出。' }); } });
 }
@@ -215,8 +220,8 @@ app.whenReady().then(async () => {
     dialog.showErrorBox('卷桥', `${e.message}\n\n程序版本：${app.getVersion()}\n配置位置：${store.filename}${reportSaved ? '\n错误记录：' + reportPath : ''}\n已有配置未被覆盖。`);
     closing = true; app.quit(); return;
   }
-  if(config.launchAtLogin)app.setLoginItemSettings({openAtLogin:true,path:process.env.PORTABLE_EXECUTABLE_FILE || app.getPath('exe')});
   const executable=process.env.PORTABLE_EXECUTABLE_FILE || app.getPath('exe');
+  startup=createStartup({app,executable});startup.refresh();
   updater=createUpdater({getSource:()=>config.updateSource,getVersion:()=>app.getVersion().replace(/-node$/,''),kind:distribution({portableFile:process.env.PORTABLE_EXECUTABLE_FILE,executable}),directory:path.join(profileDirectory,'updates'),enabled:app.isPackaged && gatewayEngine==='go',fetcher:(url,options)=>githubFetch(url,options,(...args)=>electronFetch(net,...args)),onChange:publish,install:async payload=>{
     if(busy || closing)return false;
     const unsaved=await window.webContents.executeJavaScript('Boolean(dirty || keyDirty || billingDirty || refreshIntervalDirty)');
