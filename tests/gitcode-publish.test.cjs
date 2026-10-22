@@ -10,10 +10,10 @@ test('GitCode publication verifies all public artifacts before promoting the rel
  fs.writeFileSync(path.join(directory,`SHA256SUMS-${version}.txt`),'fixture');fs.writeFileSync(path.join(directory,'scrollbridge-update.json'),JSON.stringify(signManifest({schemaVersion:1,version,assets},keys.privateKey)));
  const fetcher=async(address,options)=>{
   const url=new URL(address);calls.push({path:url.pathname,method:options.method,body:options.method==='PATCH'?JSON.parse(options.body):null});
-  if(url.hostname==='test.obs.cn-north-4.myhuaweicloud.com'){assert.equal(options.redirect,'error');remote.set(url.pathname.slice(1),Buffer.from(await new Response(options.body).arrayBuffer()));return new Response('');}
+  if(url.hostname==='file.gitcode.com'){assert.equal(options.redirect,'error');remote.set(url.pathname.slice(1),Buffer.from(await new Response(options.body).arrayBuffer()));return new Response('');}
   assert.equal(url.hostname,'api.gitcode.com');assert.equal(url.searchParams.get('access_token'),'test-only-token');
   if(url.pathname.includes('/tags/'))return Response.json({error_message:'未找到 release'},{status:400});
-  if(url.pathname.endsWith('/upload_url'))return Response.json({url:'https://test.obs.cn-north-4.myhuaweicloud.com/'+url.searchParams.get('file_name'),headers:{'Content-Type':'application/octet-stream'}});
+  if(url.pathname.endsWith('/upload_url'))return Response.json({url:'https://file.gitcode.com/'+url.searchParams.get('file_name'),headers:{'Content-Type':'application/octet-stream'}});
   return Response.json({assets:[]});
  };
  let downloads=0;
