@@ -32,7 +32,7 @@ async function publishGitcode({directory,token,notes='',fetcher=fetch,download=g
   const filename=path.join(directory,name),size=fs.statSync(filename).size;
   const old=release.assets?.find(a=>a.name===name);if(old){if(!Number.isSafeInteger(old.id))throw Error('GitCode 附件缺少 ID');await api(`/${tag}/attach_files/${old.id}`,{method:'DELETE'});}
   const signed=await api(`/${tag}/upload_url`,{query:{file_name:name}});
-  const url=new URL(signed.url);if(url.protocol!=='https:' || url.username || url.password || url.port || !/^[a-z0-9-]+\.obs\.[a-z0-9-]+\.myhuaweicloud\.com$/.test(url.hostname))throw Error('GitCode 上传地址不受信任');
+  const url=new URL(signed.url);if(url.protocol!=='https:' || url.username || url.password || url.port || !/^[a-z0-9-]+\.obs\.[a-z0-9-]+\.myhuaweicloud\.com$/.test(url.hostname))throw Error('GitCode 上传主机尚未验证：'+url.hostname);
   let result;try{result=await fetcher(url.href,{method:'PUT',redirect:'error',headers:{...signed.headers,'Content-Length':String(size)},body:Readable.toWeb(fs.createReadStream(filename)),duplex:'half',signal:AbortSignal.timeout(30*60*1000)});}catch{throw Error('GitCode 附件上传失败');}
   if(!result.ok)throw Error(`GitCode 附件上传失败（HTTP ${result.status}）`);await result.body?.cancel();
   // Anonymous round trip: verify the actual public bytes before making the release latest.
