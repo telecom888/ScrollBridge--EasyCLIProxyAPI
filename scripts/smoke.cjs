@@ -36,7 +36,7 @@ const assert = require('node:assert/strict');
     assert.ok(local.ok);assert.equal(local.steps.length,3);assert.ok(local.process.ownedByCore);assert.match(await window.locator('#local-diagnostic-summary').innerText(),/检测通过/); console.log(`Local CPA verified: ${local.models.length} models, core process and listener healthy (names/credentials omitted)`);
     await window.screenshot({path:path.join(out,'diagnostics.png'),fullPage:true});
     assert.equal(errors.length,0,JSON.stringify(errors));
-    fs.writeFileSync(path.join(out,'smoke-report.json'),JSON.stringify({ok:true,localProxy:true,modelCount:local.models.length,rendererErrors:errors,executable:process.argv[2]?'packaged':'development',checks:['navigation','light theme','dark theme','binding form','protocol examples','clipboard','DPAPI encryption','key excluded from renderer snapshot','local proxy import and connectivity','core process exists','port owned by core','diagnostic UI results']},null,2));
+    fs.writeFileSync(path.join(out,'smoke-report.json'),JSON.stringify({ok:true,localProxy:true,modelCount:local.models.length,rendererErrors:errors,executable:process.argv[2]?'packaged':'development',checks:['navigation','light theme','dark theme','binding form','protocol examples','clipboard','portable AES-GCM encryption','key excluded from renderer snapshot','local proxy import and connectivity','core process exists','port owned by core','diagnostic UI results']},null,2));
     console.log('Electron smoke tests passed');
   } finally {if(testKey)await app.evaluate(({clipboard},key)=>{if(clipboard.readText()===key)clipboard.clear();},testKey).catch(()=>{});await app.close(); }
 })().catch(e=>{console.error(e);process.exitCode=1;});

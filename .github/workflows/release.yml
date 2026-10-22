@@ -1,0 +1,54 @@
+name: Windows release
+on:
+  push:
+    tags: ['v*']
+  release:
+    types: [published]
+permissions:
+  contents: write
+concurrency:
+  group: release-${{ github.event.release.tag_name || github.ref_name }}
+  cancel-in-progress: false
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name || github.ref_name }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: beta/go-gateway/go.mod
+          cache-dependency-path: beta/go-gateway/go.sum
+      - run: npm ci
+      - run: npm run vendor
+      - name: Validate release tag
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name || github.ref_name }}
+        run: |
+          $version = node -p "require('./package.json').version"
+          if ($env:RELEASE_TAG -ne "v$version") { throw 'Tag must match package.json version' }
+      - run: npm run dist
+      - name: Verify Windows update replacement and rollback
+        run: node scripts/update-worker-smoke.cjs
+      - name: Upload three packages and update metadata
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.event.release.tag_name || github.ref_name }}
+        run: |
+          $version = node -p "require('./package.json').version"
+          gh release view $env:RELEASE_TAG
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $env:RELEASE_TAG --verify-tag --generate-notes
+            if ($LASTEXITCODE -ne 0) { throw 'Release creation failed' }
+          }
+          gh release upload $env:RELEASE_TAG "release/ScrollBridge-$version-win-x64.zip" "release/ScrollBridge-Setup-$version-win-x64.exe" "release/ScrollBridge-$version-win-x64.exe" "release/SHA256SUMS-$version.txt" "release/scrollbridge-update.json" --clobber
+          if ($LASTEXITCODE -ne 0) { throw 'Release upload failed' }

@@ -52,4 +52,4 @@ async function run(engine){
     console.log('Desktop management API passed:',engine,'UI synchronization, shared lock, keys/aliases, real gateway policy, lifecycle and persistence');
   }finally{if(app)await app.close();if(releaseRefresh)releaseRefresh();upstream.closeAllConnections();await new Promise(resolve=>upstream.close(resolve));}
 }
-(async()=>{for(const engine of ['node','go'])await run(engine);})().catch(error=>{console.error(error);process.exitCode=1;});
+(async()=>{for(const engine of process.argv[2]==='--both'?['node','go']:[process.argv[2] || 'go'])await run(engine);})().catch(error=>{console.error(error);process.exitCode=1;});

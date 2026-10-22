@@ -19,7 +19,7 @@ const result=spawnSync(require('electron'),[bootstrap],{env,windowsHide:true,tim
 if(result.error)throw result.error;assert.equal(result.status,0,result.stderr);
 const report=fs.readFileSync(path.join(profile,'startup-error.json'),'utf8');
 assert.equal(JSON.parse(report).configShape.version,1);
-assert.equal(JSON.parse(report).expectedFormat,2);
+assert.equal(JSON.parse(report).expectedFormat,require('../lib/store.cjs').SETTINGS_VERSION);
 assert.equal(report.includes('private-test-value'),false);
 assert.equal(fs.readFileSync(path.join(profile,'scrollbridge.json'),'utf8'),original);
 assert.match(fs.readFileSync(path.join(profile,'dialog.txt'),'utf8'),/startup-error\.json/);

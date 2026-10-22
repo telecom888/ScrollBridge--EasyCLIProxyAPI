@@ -1,8 +1,8 @@
-const { app, BrowserWindow, ipcMain, safeStorage, dialog, shell, clipboard, nativeImage, Tray, Menu, session } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, clipboard, nativeImage, Tray, Menu, session, net } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
 const { parseCPA } = require('../lib/import-cpa.cjs');
-const { Store } = require('../lib/store.cjs');
+const { Store, SETTINGS_VERSION } = require('../lib/store.cjs');
 const {dataDirectory} = require('../lib/data-path.cjs');
 const { validateConfig, createAccessKey } = require('../lib/config.cjs');
 const gatewayEngine=process.env.SCROLLBRIDGE_GATEWAY_ENGINE || require('../package.json').gatewayEngine || 'go';
@@ -14,6 +14,9 @@ const {fetchModels,modelKey,modelName}=require('../lib/models.cjs');
 const {uid,newKey,syncModels,deleteUnavailableModel,entries}=require('../lib/policy.cjs');
 const {createModelRefresh}=require('../lib/model-refresh.cjs');
 const {startManagementAPI}=require('../lib/management-api.cjs');
+const {createUpdater,distribution,githubFetch}=require('../lib/updates.cjs');
+const {createInstallJob,launchInstallJob}=require('../lib/update-install.cjs');
+const {readUpdateTicket,acknowledgeUpdate}=require('../lib/update-ticket.cjs');
 app.setName('ScrollBridge');
 const configDirectory = dataDirectory({testDirectory:process.env.SCROLLBRIDGE_TEST_DATA,portableFile:process.env.PORTABLE_EXECUTABLE_FILE,packaged:app.isPackaged,executable:app.getPath('exe'),appPath:app.getAppPath()});
 // Both desktop editions and every portable filename share the same identity.
@@ -23,9 +26,9 @@ app.setPath('userData', profileDirectory);
 const ownsProfile = app.requestSingleInstanceLock();
 if (!ownsProfile) app.quit();
 let window, tray, store, config, secrets, gateway, tunnel, closing = false, busy = false;
-let modelRefresh, managementAPI;
+let modelRefresh, managementAPI, updater;
 let status = 'stopped', message = '', records = [], logs = [], localDiagnostic = null, publicDiagnostic = null;
-const view = () => ({ config, keys:config.accessKeys.map(key=>({...key,masked:`${secrets.keyValues[key.id].slice(0,6)}…${secrets.keyValues[key.id].slice(-4)}`})), modelEntries:entries(config),hasUpstreamKey: !!secrets.upstreamKey, hasTunnelToken: !!secrets.tunnelToken, gatewayRunning: !!gateway, status, message, records, logs, localDiagnostic, publicDiagnostic, version: app.getVersion(),features:{billing:gatewayEngine==='go',keyLimits:gatewayEngine==='go'} });
+const view = () => ({ config, keys:config.accessKeys.map(key=>({...key,masked:`${secrets.keyValues[key.id].slice(0,6)}…${secrets.keyValues[key.id].slice(-4)}`})), modelEntries:entries(config),hasUpstreamKey: !!secrets.upstreamKey, hasTunnelToken: !!secrets.tunnelToken, gatewayRunning: !!gateway, status, message, records, logs, localDiagnostic, publicDiagnostic, update:updater?.snapshot(),version: app.getVersion(),features:{billing:gatewayEngine==='go',keyLimits:gatewayEngine==='go'} });
 async function synchronizeGateway(){try{await gateway?.refreshPolicy();}catch{await stop();state('error','配置已保存，网关更新失败，连接已停止');throw new Error('配置已保存，网关更新失败，请重新连接');}}
 async function commit(next,nextSecrets=secrets) {
   next=validateConfig(next);store.save(next,nextSecrets);config=next;secrets=nextSecrets;
@@ -70,6 +73,9 @@ async function save(payload = {}) {
   await synchronizeGateway();publish(); return view();
 }
 const actions = {
+  checkUpdates: () => updater.check(),
+  downloadUpdate: () => {void updater.download().catch(e=>log(e.message));return updater.snapshot();},
+  installUpdate: () => {void updater.apply().catch(e=>log(e.message));return updater.snapshot();},
   snapshot: () => view(),
   revealKey: payload => {const key=findKey(payload?.id);return {id:key.id,value:secrets.keyValues[key.id]};},
   save,
@@ -168,7 +174,7 @@ function updateModels(knownModels) {
 }
 async function invokeAction(action,payload) {
   if(!Object.hasOwn(actions,action))throw Object.assign(new Error('请求无效'),{status:404,code:'NOT_FOUND'});
-  const mutation=!['snapshot','copy','copyKey','revealKey','openCloudflare','openGuide','openData'].includes(action);
+  const mutation=!['snapshot','copy','copyKey','revealKey','openCloudflare','openGuide','openData','checkUpdates','downloadUpdate','installUpdate'].includes(action);
   if(closing)throw Object.assign(new Error('程序正在退出'),{status:503,code:'SHUTTING_DOWN'});
   if(mutation && busy)throw Object.assign(new Error('请等待当前操作完成'),{status:409,code:'BUSY'});
   if(mutation)busy=true;
@@ -185,7 +191,7 @@ app.on('second-instance', () => { if (window) { window.show(); window.focus(); }
 app.whenReady().then(async () => {
   if (!ownsProfile) return;
   session.defaultSession.setPermissionRequestHandler((_, __, cb) => cb(false));
-  store = new Store(configDirectory, safeStorage);
+  store = new Store(configDirectory);
   try { ({ config, secrets } = store.load()); } catch (e) {
     const reportPath = path.join(configDirectory, 'startup-error.json');
     let reportSaved = false;
@@ -194,7 +200,7 @@ app.whenReady().then(async () => {
         time: new Date().toISOString(), appVersion: app.getVersion(),
         executable: process.env.PORTABLE_EXECUTABLE_FILE || process.execPath,
         configPath: store.filename,
-        expectedFormat: 2, configShape: e.configShape || null
+        expectedFormat: SETTINGS_VERSION, configShape: e.configShape || null
       }, null, 2), {mode:0o600});
       reportSaved = true;
     } catch {}
@@ -202,6 +208,17 @@ app.whenReady().then(async () => {
     closing = true; app.quit(); return;
   }
   if(config.launchAtLogin)app.setLoginItemSettings({openAtLogin:true,path:process.env.PORTABLE_EXECUTABLE_FILE || app.getPath('exe')});
+  const executable=process.env.PORTABLE_EXECUTABLE_FILE || app.getPath('exe');
+  updater=createUpdater({getVersion:()=>app.getVersion().replace(/-node$/,''),kind:distribution({portableFile:process.env.PORTABLE_EXECUTABLE_FILE,executable}),directory:path.join(profileDirectory,'updates'),enabled:app.isPackaged && gatewayEngine==='go',fetcher:(url,options)=>githubFetch(url,options,(...args)=>net.fetch(...args)),onChange:publish,install:async payload=>{
+    if(busy || closing)return false;
+    const unsaved=await window.webContents.executeJavaScript('Boolean(dirty || keyDirty || billingDirty || refreshIntervalDirty)');
+    if(unsaved)return false;
+    busy=true;
+    try{
+      const plan=createInstallJob(payload,{executable,configDirectory,profileDirectory,resumeConnection:!!gateway});
+      await launchInstallJob(plan);closing=true;modelRefresh?.stop();await stop();app.quit();return true;
+    }finally{if(!closing)busy=false;}
+  }});
   ipcMain.handle('bridge', async (event, action, payload) => {
     if (event.sender !== window?.webContents || event.senderFrame !== window.webContents.mainFrame || !Object.hasOwn(actions, action)) throw new Error('请求无效');
     try { return await invokeAction(action,payload); } catch (e) { throw new Error(e.message); }
@@ -217,10 +234,18 @@ app.whenReady().then(async () => {
     busy=true;
     try{await actions.refreshModels();}finally{busy=false;}
   },onError:()=>log('自动刷新模型失败，已保留现有列表；请检查本地代理服务')});
-  void modelRefresh.start();
+  let ticket;
+  try{ticket=readUpdateTicket({id:process.env.SCROLLBRIDGE_UPDATE_ID,profileDirectory,version:app.getVersion(),executable});}catch(e){log(e.message);}
+  delete process.env.SCROLLBRIDGE_UPDATE_ID;
+  if(ticket){
+    let ready=false;
+    for(let i=0;i<100;i++){ready=await window.webContents.executeJavaScript('typeof snapshot!=="undefined" && !!snapshot');if(ready)break;await new Promise(r=>setTimeout(r,100));}
+    if(ready)acknowledgeUpdate(ticket,app.getVersion());
+  }
+  void modelRefresh.start().finally(()=>{if(ticket?.job.resumeConnection)void invokeAction('start').catch(e=>log('更新后连接恢复失败：'+e.message));});
   if (process.env.SCROLLBRIDGE_SMOKE === '1') {
     await window.webContents.executeJavaScript("document.documentElement.dataset.smoke = 'ready'");
-    fs.writeFileSync(path.join(app.getPath('userData'),'runtime-ready.json'),JSON.stringify({packaged:app.isPackaged,portable:!!process.env.PORTABLE_EXECUTABLE_FILE,encrypted:safeStorage.isEncryptionAvailable(),ready:true}));
+    fs.writeFileSync(path.join(app.getPath('userData'),'runtime-ready.json'),JSON.stringify({packaged:app.isPackaged,portable:!!process.env.PORTABLE_EXECUTABLE_FILE,encrypted:true,ready:true}));
     console.log('SCROLLBRIDGE_READY');
     if(process.env.SCROLLBRIDGE_SMOKE_EXIT==='1')setTimeout(()=>{closing=true;app.quit();},500);
   }

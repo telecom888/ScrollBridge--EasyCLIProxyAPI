@@ -1,17 +1,17 @@
 {
   "name": "scrollbridge",
   "productName": "卷桥",
-  "version": "0.3.8",
+  "version": "0.3.13",
   "description": "本地模型服务的域名与 HTTPS 隧道桌面工具",
   "author": "telecom888",
-  "license": "MIT",
+  "license": "GPL-3.0-only",
   "main": "electron/main.cjs",
   "scripts": {
     "start": "electron .",
     "test": "node --test tests/*.test.cjs",
     "check": "node scripts/check.cjs",
     "vendor": "node scripts/vendor.cjs",
-    "dist": "npm run check && npm test && npm run test:go && node scripts/build-desktop.cjs go",
+    "dist": "npm run check && npm test && npm run test:go && node scripts/build-desktop.cjs go --skip-core-build",
     "dist:node": "node scripts/build-desktop.cjs node",
     "dist:go": "node scripts/build-desktop.cjs go",
     "dist:both": "node scripts/build-desktop.cjs both",
@@ -53,7 +53,9 @@
     },
     "win": {
       "target": [
-        "portable"
+        "portable",
+        "nsis",
+        "zip"
       ],
       "signExecutable": false,
       "icon": "design/app.ico"
@@ -63,5 +65,9 @@
       "artifactName": "ScrollBridge-${version}-win-x64.exe"
     }
   },
-  "gatewayEngine": "go"
+  "gatewayEngine": "go",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/telecom888/ScrollBridge--EasyCLIProxyAPI.git"
+  }
 }

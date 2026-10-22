@@ -1,5 +1,7 @@
 # 卷桥 ScrollBridge
 
+0.3.13 新增三种桌面包的更新检测、下载、安装和重启，入口位于「设置 → 外观」下方。发布与测试说明见 [UPDATES.md](UPDATES.md)。
+
 0.3.8 以 Go 网关作为主线，新增按密钥筛选日志及单密钥并发、周期请求限额。更新说明见 [docs/0.3.8.md](docs/0.3.8.md)。桌面本机管理 API 与 UI 同步，调用示例见 [MANAGEMENT-API.md](MANAGEMENT-API.md)。
 
 将正在本机运行的 CLIProxyAPI / EasyCLIProxyAPI 模型服务通过固定域名提供给外部客户端。Windows x64 桌面应用，白色与羊皮纸色界面，支持深色和跟随系统。域名默认留空。
@@ -8,7 +10,7 @@
 
 双击 `release/ScrollBridge-0.3.8-win-x64.exe`，无需安装 Node.js、管理员权限或开放入站端口。保持原代理工具运行。
 
-配置文件为 exe 同目录的 `scrollbridge.json`。普通版和 beta 版放在同一目录时共享配置；升级时将新 exe 放入该目录即可。移动到其他目录时请同时带上配置文件。目录必须可写，不会回退到 C 盘另建配置。密钥仍依赖原 Windows 账户和 Electron 加密环境；用户数据目录的 Local State 属于加密环境，不作为旧业务配置删除。Electron 缓存、单实例锁和 Go 运行账本继续由用户数据目录管理。
+配置文件为 exe 同目录的 `scrollbridge.json`。升级时将新 exe 放入该目录即可，移动到其他目录时请同时带上配置文件。目录必须可写，不会回退到 C 盘另建配置。0.3.10 使用版本 3 配置，凭据通过固定内置密钥的 AES-256-GCM 保存，不再依赖 Windows 账户或 Electron Local State。旧格式需先显式转换，不能直接交给新版本读取。Electron 缓存、单实例锁和 Go 运行账本继续由用户数据目录管理。
 
 连接运行时，点击锁定的配置项会提示「请先停止连接再修改配置」。停止连接后即可编辑。
 
@@ -38,7 +40,7 @@
 
 「记录」显示密钥名称、请求模型和实际模型，不保存完整密钥、提示词或图片。WebSocket 的状态 200 表示网关接受并转发，实际生成结果由上游决定。
 
-配置文件仅支持当前的 `version: 2`，启动不扫描或导入旧版配置。历史迁移工具与旧格式运行分支已移除。普通配置变更复用已有密文；只有密钥变更时才加密，无变更保存不写盘。保存使用临时文件、同步落盘和原子替换，不产生持久备份文件。
+配置文件仅支持当前的 `version: 3`，启动不扫描或导入旧版配置。历史迁移工具与旧格式运行分支已移除。普通配置变更复用已有密文；只有密钥变更时才加密，无变更保存不写盘。保存使用临时文件、同步落盘和原子替换，不产生持久备份文件。
 
 ## 图像接口
 
@@ -112,7 +114,7 @@ API 令牌最小权限：目标账户 **Cloudflare Tunnel: Edit**，目标区域
 - 命名 Tunnel 提供固定域名与 SSE。Quick Tunnel 官方不支持 SSE，因此应用不提供该模式。
 - 外部访问密钥独立随机生成；通过 Bearer、Anthropic 和 Google 方式验证后，替换成本地代理客户端密钥。模型接口白名单之外的管理面板、OAuth、任意地址转发均被拒绝。
 - 网关仅监听 `127.0.0.1`；本地上游也限制回环地址。HTTPS 上游保留证书校验，不提供跳过校验选项。
-- 外部密钥、本地密钥、隧道令牌由 Electron safeStorage 使用 Windows DPAPI 加密，保存在 exe 同目录 `scrollbridge.json`。配置绑定当前 Windows 用户。隧道令牌通过子进程环境传递，不在命令行或明文文件中保存。
+- 外部密钥、本地密钥、隧道令牌使用固定内置 AES-256-GCM 密钥保存到 exe 同目录 `scrollbridge.json`，每次凭据变化生成随机 nonce 并验证认证标签。此方案用于可移植的非明文保存；拿到程序的人可以提取内置密钥并解密配置，不能作为防本机攻击的安全边界。配置损坏时拒绝加载，不会重新生成或覆盖现有凭据。隧道令牌通过子进程环境传递，不在命令行或明文文件中保存。
 - 日志只在内存保留最近 200 条请求、100 条隧道消息，不记录正文和查询参数。退出即清空。复制密钥后系统剪贴板中会保留该值。
 - 单请求上限 32 MiB，请求总超时 30 分钟。默认不设固定并发或活动上游连接上限；可在「密钥」页分别设置并发数、每几分钟或几小时的请求数。流式转发保持背压、内存预算、单事件大小及慢客户端写入超时保护，客户端断开会取消上游。
 - 连接运行时关闭主窗口会缩到托盘；从托盘「退出」停止隧道和网关。应用不会启动或退出原代理工具。开机启动只打开卷桥，不自动向公网发布。
@@ -132,7 +134,11 @@ npm start
 npm run dist
 ```
 
-`vendor` 下载 cloudflared 2026.10.1 并比对固定官方 SHA-256。`dist` 生成免安装 EXE。`node scripts/logos.cjs` 可从锁定的 GitHub 版本重新下载 SVG 和许可证。`node scripts/smoke.cjs` 验证 Electron UI 和本工作区代理导入；`node scripts/live-proxy.cjs` 对本工作区正在运行的代理发起三次最小流式请求。后两者的原代理路径针对本机，迁移机器时需修改。
+`vendor` 下载 cloudflared 2026.10.1 并比对固定官方 SHA-256。`dist` 基于同一份 Go 核心及桌面文件生成三种 Windows x64 发行包：免安装 ZIP 文件夹版、NSIS 安装程序、单 exe 便携版，并生成 SHA256SUMS。`node scripts/logos.cjs` 可从锁定的 GitHub 版本重新下载 SVG 和许可证。`node scripts/smoke.cjs` 验证 Electron UI 和本工作区代理导入；`node scripts/live-proxy.cjs` 对本工作区正在运行的代理发起三次最小流式请求。后两者的原代理路径针对本机，迁移机器时需修改。
+
+ZIP 解压后运行文件夹内的 `卷桥.exe`，需保留同目录的其他运行文件；安装版提供安装目录选择，仅安装到当前账户，默认不在安装结束后自动运行；单 exe 版每次运行仍会解压临时文件。三种版本均在主程序旁保存 `scrollbridge.json`，ZIP 和安装版可以移入原配置以保留已有密钥，发行包不包含个人配置。安装版覆盖安装及卸载后保留该配置文件，不删除其他正在运行的便携副本。安装目录应选择当前账户可写的位置。
+
+`node scripts/distribution-smoke.cjs` 在隔离目录中验证三种包的实际启动、配置位置、安装版覆盖安装与卸载时的凭据保留；如果检测到已有安装版，会拒绝替换。
 
 测试截图、临时加密配置和报告在 `.test-output/`，不进入 Git 或安装包。源代码不包含个人域名和凭据。生产依赖为 `ws`、`yaml` 和 `busboy`。`node scripts/multi-key-smoke.cjs` 在隔离配置中验证密钥、权限、别名和重启恢复，使用模拟上游，不消耗模型额度。
 
@@ -147,7 +153,7 @@ UI 先用内置 ImageGen 生成参考，再实现原生代码界面。参考图�
 - [Cloudflare Tunnel 配置](https://developers.cloudflare.com/tunnel/get-started/)、[Quick Tunnel 限制](https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/)。
 - [Lobe Icons](https://github.com/lobehub/lobe-icons)，见 `THIRD_PARTY_NOTICES.md`。
 
-项目使用 MIT 许可证。没有捆绑原 CLIProxyAPI 或 EasyCLIProxyAPI 可执行文件。
+项目使用 GNU GPLv3 许可证。没有捆绑原 CLIProxyAPI 或 EasyCLIProxyAPI 可执行文件。
 
 ## Go 网关主线
 
@@ -155,8 +161,12 @@ UI 先用内置 ImageGen 生成参考，再实现原生代码界面。参考图�
 
 Go 已移植 WebSocket、multipart 图像编辑、Gemini 图像生成兼容、gzip/deflate/Brotli、单模型详情及过滤后的上游模型目录。两版在同目录共用配置，使用同一单实例锁，请退出一版再打开另一版。
 
-配置相关验证：`node scripts/profile-upgrade-smoke.cjs` 检查两种版本反复启动、单实例和密钥保持；`node scripts/portable-location-smoke.cjs` 实际复制、重命名两份便携 exe，验证配置位于外层 exe 同目录而非临时解包目录或用户数据目录；`node scripts/portable-duplicate-smoke.cjs` 验证重复启动不会删除在用资源；`node scripts/startup-error-smoke.cjs` 验证错误记录不包含密钥、不会覆盖错误配置。
+配置相关验证：`node scripts/profile-upgrade-smoke.cjs` 默认检查 Go 版反复启动、单实例和密钥保持，传 `--both` 才切换两种版本；`node scripts/portable-location-smoke.cjs` 实际复制、重命名两份便携 exe，验证真实启动标记与配置位置，`portable-smoke.cjs` 是同一检查的别名，不需要重复运行；`node scripts/portable-duplicate-smoke.cjs` 默认验证 Go 便携版重复启动不会删除在用资源，传 `--both` 才检查 Node 版；`node scripts/startup-error-smoke.cjs` 验证错误记录不包含密钥、不会覆盖错误配置。
+
+桌面网关和管理 API 的独立检查脚本默认只运行 Go，可显式传 `node` 或 `--both`。各层测试范围及本轮去重记录见 [回归测试检查](docs/regression-audit-0.3.10.md)。
 
 默认构建：`npm run dist`；开发时先执行 `node scripts/build-desktop.cjs core`，再 `npm start`，默认启动 Go 网关。`npm run test:go` 执行核心功能和桌面桥接回归。历史 Node 版可单独使用 `npm run dist:node` 构建。
+
+`dist` 在 `test:go` 中编译一次 Go 核心并验证，打包阶段通过 `--skip-core-build` 复用该二进制及许可证。`dist:go`、`dist:both` 和单独运行 `build-desktop.cjs go` 仍会自动编译，避免直接打包时漏掉构建步骤。
 
 本次移植及验证见 [桌面双版本说明](beta/go-gateway/DESKTOP-0.3.0.md)。独立网关和可选 Redis 操作见 [核心说明](beta/go-gateway/README.md)；[原始性能对比](beta/go-gateway/REPORT.md) 是 0.1.0 核心版本的历史测量，不能作为本次桌面版的新压测数据。

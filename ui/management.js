@@ -60,12 +60,19 @@ function populateKeyEditor(id,creating=false) {
 }
 function updateKeyEditorControls() {
   $('key-form').hidden=!keyEditorVisible;$('key-editor-empty').hidden=keyEditorVisible;
+  document.querySelector('.key-workspace').classList.toggle('editor-closed',!keyEditorVisible);
   $('key-draft-status').hidden=!keyDirty;
   $('key-form').querySelector('[type=submit]').disabled=keySaving || !keyCreating && !keyDirty;
   for(const id of ['key-name','key-enabled','key-all','permission-search','cancel-key-edit','close-key-editor','new-key','key-concurrent-enabled','key-concurrent','key-rate-enabled','key-request-limit','key-window-value','key-window-unit'])$(id).disabled=keySaving;
   renderKeyLimitFields();
   $('key-form').setAttribute('aria-busy',String(keySaving));
   for(const input of $('key-permissions').querySelectorAll('input'))input.disabled=keySaving || input.dataset.blocked==='true';
+  for(const id of ['permission-select-all','permission-clear'])$(id).disabled=keySaving;
+  updatePermissionCount();
+}
+function updatePermissionCount(){
+  const entries=snapshot.modelEntries || [],usable=entries.filter(row=>row.available && row.globalEnabled);
+  $('permission-count').textContent=`已选择 ${usable.filter(row=>$('key-all').checked || permissionSelection.has(row.id)).length} / ${entries.length}`;
 }
 function renderKeyLimitFields() {
   const available=!!snapshot.features?.keyLimits,concurrent=available && $('key-concurrent-enabled').checked,rate=available && $('key-rate-enabled').checked;
@@ -101,6 +108,46 @@ function renderPermissionChoices() {
     if(input.checked)permissionSelection.add(input.dataset.permission);else permissionSelection.delete(input.dataset.permission);
     markKeyDirty();
   };
+  updatePermissionCount();
+}
+
+// Layout preferences are local UI state and never enter the credential config.
+function initKeyLayout(){
+  const workspace=$('key-workspace'),storageKey='scrollbridge.key-columns',defaults=[.23,.35,.42],minimum=[220,300,320];
+  let ratios=[...defaults];
+  try{const saved=JSON.parse(localStorage.getItem(storageKey));if(Array.isArray(saved) && saved.length===3 && saved.every(n=>Number.isFinite(n) && n>0)){const sum=saved.reduce((a,b)=>a+b,0);ratios=saved.map(n=>n/sum);}}catch{}
+  const dividers=[...workspace.querySelectorAll('[data-divider]')];
+  const widths=()=>{
+    const total=workspace.clientWidth-20;
+    let result=ratios.map(n=>n*total),remaining=total,flex=[0,1,2];
+    while(flex.length){const sum=flex.reduce((n,i)=>n+ratios[i],0),small=flex.filter(i=>remaining*ratios[i]/sum<minimum[i]);if(!small.length){for(const i of flex)result[i]=remaining*ratios[i]/sum;break;}for(const i of small){result[i]=minimum[i];remaining-=minimum[i];}flex=flex.filter(i=>!small.includes(i));}
+    return result;
+  };
+  const apply=()=>{
+    if(!workspace.clientWidth)return;
+    const values=widths();workspace.style.gridTemplateColumns=`${values[0]}px 10px ${values[1]}px 10px ${values[2]}px`;
+    dividers.forEach((divider,i)=>{const pair=values[i]+values[i+1];divider.setAttribute('aria-valuemin',Math.round(minimum[i]/pair*100));divider.setAttribute('aria-valuemax',Math.round((pair-minimum[i+1])/pair*100));divider.setAttribute('aria-valuenow',Math.round(values[i]/pair*100));});
+  };
+  const persist=()=>{try{localStorage.setItem(storageKey,JSON.stringify(ratios));}catch{}};
+  const resize=(index,base,delta)=>{
+    const pair=base[index]+base[index+1],left=Math.max(minimum[index],Math.min(pair-minimum[index+1],base[index]+delta));
+    const next=[...base];next[index]=left;next[index+1]=pair-left;const total=next.reduce((a,b)=>a+b,0);ratios=next.map(n=>n/total);apply();
+  };
+  for(const divider of dividers){
+    const index=Number(divider.dataset.divider);
+    divider.onpointerdown=event=>{
+      if(event.button!==0)return;event.preventDefault();divider.focus();divider.setPointerCapture(event.pointerId);
+      const base=widths(),start=event.clientX;workspace.classList.add('resizing');
+      divider.onpointermove=e=>resize(index,base,e.clientX-start);
+      const finish=()=>{divider.onpointermove=null;workspace.classList.remove('resizing');persist();};
+      divider.onpointerup=()=>{divider.releasePointerCapture(event.pointerId);finish();};divider.onlostpointercapture=finish;divider.onpointercancel=finish;
+    };
+    divider.onkeydown=event=>{if(!['ArrowLeft','ArrowRight','Home'].includes(event.key))return;event.preventDefault();if(event.key==='Home')reset();else{resize(index,widths(),(event.key==='ArrowLeft'?-1:1)*(event.shiftKey?40:12));persist();}};
+    divider.ondblclick=()=>reset();
+  }
+  const reset=()=>{ratios=[...defaults];try{localStorage.removeItem(storageKey);}catch{}apply();};
+  const button=document.createElement('button');button.id='reset-key-layout';button.className='secondary';button.hidden=true;button.textContent='恢复默认布局';button.onclick=reset;document.querySelector('.header-actions').prepend(button);
+  new ResizeObserver(apply).observe(workspace);apply();
 }
 function addAliasRow(alias={id:'',name:''}) {
   const row=document.createElement('div');row.className='alias-row';row.dataset.aliasId=alias.id;
@@ -119,6 +166,7 @@ function confirmKey(action,id) {
   $('key-confirm-dialog').showModal();
 }
 function initManagement() {
+  initKeyLayout();
   const title=$('page-title'),heading=document.createElement('div');heading.className='page-heading';title.before(heading);heading.append(title);
   const create=document.createElement('button');create.id='new-key';create.className='primary';create.hidden=true;create.innerHTML=icon('plus')+'新建密钥';document.querySelector('.header-actions').prepend(create);
   const accessLabel=document.createElement('label');accessLabel.className='access-key-picker';accessLabel.innerHTML='访问密钥<select id="access-key" aria-label="调用示例密钥"></select>';
@@ -149,6 +197,8 @@ function initManagement() {
   $('menu-delete-key').onclick=()=>{$('key-menu').hidePopover();confirmKey('deleteKey',menuKeyId);};
   $('key-all').onchange=()=>{if($('key-all').checked)permissionSelection=new Set((snapshot.modelEntries || []).map(row=>row.id));renderPermissionChoices();markKeyDirty();};
   $('permission-search').oninput=renderPermissionChoices;
+  $('permission-select-all').onclick=()=>{ $('key-all').checked=false;permissionSelection=new Set((snapshot.modelEntries || []).filter(row=>row.available && row.globalEnabled).map(row=>row.id));renderPermissionChoices();markKeyDirty();};
+  $('permission-clear').onclick=()=>{ $('key-all').checked=false;permissionSelection.clear();renderPermissionChoices();markKeyDirty();};
   $('key-form').onsubmit=event=>{event.preventDefault();task(event.submitter,async()=>{
     const previous=new Set(snapshot.keys.map(key=>key.id)),target=editingKeyId;
     const valid=new Set(snapshot.config.modelRules.flatMap(rule=>[rule.originalId,...rule.aliases.map(alias=>alias.id)]));

@@ -1,6 +1,6 @@
 # Go beta dependency licenses
 
-Generated from pinned go.mod/go.sum. Includes test dependencies; not all modules are linked into the executable. ScrollBridge source is covered by the repository MIT LICENSE.
+Generated from pinned go.mod/go.sum. Includes test dependencies; not all modules are linked into the executable. ScrollBridge source is covered by the repository GNU GPLv3 LICENSE.
 
 ## github.com/alicebob/miniredis/v2 v2.35.0
 
