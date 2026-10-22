@@ -12,6 +12,6 @@
 
 先建立预发布版本，逐个上传五个附件，再匿名下载并校验全部字节，最后标为最新版。任一步失败均不提升为最新版。可重试预发布版本；已正式发布的版本拒绝覆盖。尚未提供令牌时发布任务会明确失败，GitHub 发布不受影响。
 
-GitCode 当前仓库尚无 Release，真实上传和 CDN 下载路径需在配置令牌后完成验收。不能仅凭模拟测试宣称线上渠道已可用或速度优于 GitHub。
+首次接入须验证真实附件上传及公开下载，并通过三个发行类型的更新检测；不能仅凭模拟测试宣称线上渠道已可用或速度优于 GitHub。GitCode 的上传服务使用 `file.gitcode.com`，公开下载经 `file-cdn.gitcode.com` 分发。
 
 参考：[创建 Release](https://docs.gitcode.com/docs/apis/post-api-v-5-repos-owner-repo-releases/)、[附件上传](https://docs.gitcode.com/docs/apis/get-api-v-5-repos-owner-repo-releases-tag-upload-url/)、[公开下载](https://docs.gitcode.com/docs/apis/get-api-v-5-repos-owner-repo-releases-attach-files-file-name-download/)。
