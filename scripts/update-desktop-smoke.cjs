@@ -62,7 +62,7 @@ async function stopProfile(profile){
    for(const k of ['SCROLLBRIDGE_TEST_DATA','SCROLLBRIDGE_SMOKE_EXIT','ELECTRON_RUN_AS_NODE','PORTABLE_EXECUTABLE_FILE','PORTABLE_EXECUTABLE_DIR','PORTABLE_EXECUTABLE_APP_FILENAME'])delete env[k];
    if(kind==='portable'){env.PORTABLE_EXECUTABLE_FILE=path.join(target,'renamed.exe');env.PORTABLE_EXECUTABLE_DIR=target;}
    app=await launchDesktop(executable,env);const page=await until(()=>app.browser.contexts()[0]?.pages()[0]);await page.waitForFunction(()=>typeof snapshot!=='undefined' && !!snapshot);
-   await app.evaluate(`(()=>{const {app,net}=process.getBuiltinModule('node:module').createRequire(process.resourcesPath+'/app.asar/package.json')('electron');app.getVersion=()=> '0.0.1';net.fetch=(url,options)=>{const parsed=new URL(url);return fetch(${JSON.stringify(base)}+(parsed.hostname==='api.github.com'?'/releases/latest':'/'+parsed.pathname.split('/').at(-1)),options);};})()`);
+   await app.evaluate(`(()=>{const {app,net}=process.getBuiltinModule('node:module').createRequire(process.resourcesPath+'/app.asar/package.json')('electron');app.getVersion=()=> '0.0.1';const request=net.request.bind(net);net.request=options=>{const parsed=new URL(options.url);return request({...options,url:${JSON.stringify(base)}+(parsed.hostname==='api.github.com'?'/releases/latest':'/'+parsed.pathname.split('/').at(-1))});};})()`);
    await page.click('[data-page=settings]');
    assert.equal(await page.locator('#update-panel').count(),1);
    await page.click('#check-update');await page.waitForFunction(()=>snapshot.update.phase==='available');

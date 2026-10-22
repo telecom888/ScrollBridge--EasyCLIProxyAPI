@@ -15,6 +15,7 @@ const {uid,newKey,syncModels,deleteUnavailableModel,entries}=require('../lib/pol
 const {createModelRefresh}=require('../lib/model-refresh.cjs');
 const {startManagementAPI}=require('../lib/management-api.cjs');
 const {createUpdater,distribution,githubFetch}=require('../lib/updates.cjs');
+const {electronFetch}=require('../lib/electron-fetch.cjs');
 const {createInstallJob,launchInstallJob}=require('../lib/update-install.cjs');
 const {readUpdateTicket,acknowledgeUpdate}=require('../lib/update-ticket.cjs');
 app.setName('ScrollBridge');
@@ -209,7 +210,7 @@ app.whenReady().then(async () => {
   }
   if(config.launchAtLogin)app.setLoginItemSettings({openAtLogin:true,path:process.env.PORTABLE_EXECUTABLE_FILE || app.getPath('exe')});
   const executable=process.env.PORTABLE_EXECUTABLE_FILE || app.getPath('exe');
-  updater=createUpdater({getVersion:()=>app.getVersion().replace(/-node$/,''),kind:distribution({portableFile:process.env.PORTABLE_EXECUTABLE_FILE,executable}),directory:path.join(profileDirectory,'updates'),enabled:app.isPackaged && gatewayEngine==='go',fetcher:(url,options)=>githubFetch(url,options,(...args)=>net.fetch(...args)),onChange:publish,install:async payload=>{
+  updater=createUpdater({getVersion:()=>app.getVersion().replace(/-node$/,''),kind:distribution({portableFile:process.env.PORTABLE_EXECUTABLE_FILE,executable}),directory:path.join(profileDirectory,'updates'),enabled:app.isPackaged && gatewayEngine==='go',fetcher:(url,options)=>githubFetch(url,options,(...args)=>electronFetch(net,...args)),onChange:publish,install:async payload=>{
     if(busy || closing)return false;
     const unsaved=await window.webContents.executeJavaScript('Boolean(dirty || keyDirty || billingDirty || refreshIntervalDirty)');
     if(unsaved)return false;

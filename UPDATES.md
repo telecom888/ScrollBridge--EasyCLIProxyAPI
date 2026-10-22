@@ -32,7 +32,7 @@ ZIP 更新只处理打包时登记的程序文件；更新包不能携带根目�
 
 ## 验证
 
-- `npm run dist`：语法、86 项 Node 测试、Go 原生测试、12 项跨实现协议测试、三个包和校验清单。
+- `npm run dist`：语法、Node 测试、Go 原生测试、12 项跨实现协议测试、三个包和校验清单。
 - `node scripts/update-worker-smoke.cjs`：Windows 实际文件替换，覆盖 EXE、ZIP、恶意 ZIP、安装失败和启动失败回退，验证配置不变。
 - `node scripts/update-desktop-smoke.cjs`：在隔离目录使用真实安装包，替换检测版本和 Release 传输为本机夹具，通过桌面按钮完成三种包的下载、校验、安装、重启与配置保留。不会访问个人凭据或真实模型服务；存在真实安装版时拒绝覆盖。
 
