@@ -7,7 +7,7 @@ Go 主线桌面程序运行时自动提供。API 与 UI 共用配置、运行状
 1. 先启动桌面程序。读取当前 Windows 用户的 `%APPDATA%\ScrollBridge\management.json`，获取 `baseUrl` 和 `token`。不打印或提交这个文件的内容。
 2. 请求携带 `Authorization: Bearer <token>`，先读取 `GET /api/v1/schema`，查询操作目录和参数。
 3. 普通查询不返回完整密钥。只有用户确实需要时才调用 `reveal`，不要把返回的密钥写入日志或 Git。
-4. `connection/start` 返回 202 表示启动流程已接受，须轮询 `/status`，直到 `status` 为 `connected` 或 `error`。长期停在 `starting` 时读取隧道日志；停止连接后才能修改连接参数。
+4. `connection/start` 返回 202 表示启动流程已接受，须轮询 `/status`，直到状态为 connected 或 error；网络变化时也可能处于 reconnecting。长期停在 `starting` 时读取隧道日志；停止连接后才能修改连接参数。
 5. 遇到 `409 BUSY` 等待当前操作完成再重试。不要盲目重复创建、重置或删除密钥等操作。配置落盘后若网关更新失败，连接会停止，应重新读取配置和状态确认结果。
 6. 公网检测会发送一次短文本模型请求，可能消耗上游额度。重置密钥、删除及权限修改应按用户实际指令执行。
 
@@ -50,7 +50,8 @@ Invoke-RestMethod -Uri "$($bridge.baseUrl)/api/v1/status" -Headers $headers
 | GET | `/schema` | 读取动态接口说明 |
 | GET | `/status` | 连接状态、版本、网关状态及最近检测结果 |
 | GET / PATCH | `/config` | 读取或保存配置，不返回完整密钥 |
-| GET | `/logs?kind=requests&limit=100` | 请求记录；`kind=tunnel` 为隧道日志，limit 为 1–200 |
+| GET | `/logs?kind=requests&limit=100` | 请求记录；kind=tunnel 为隧道日志；limit 为 1–200，offset 为 0–10000 |
+| GET | `/logs/{id}/body` | 按需读取 HTTP 正文预览，需开启显示请求体 |
 | DELETE | `/logs` | 清空本次运行的请求和隧道日志 |
 | POST | `/connection/start`、`/connection/stop` | 启动或停止连接 |
 | POST | `/diagnostics/local`、`/diagnostics/public` | 检测本地代理或公网完整请求 |
@@ -72,7 +73,7 @@ Invoke-RestMethod -Uri "$($bridge.baseUrl)/api/v1/status" -Headers $headers
 
 `concurrent:0` 关闭该密钥并发限制；`requestLimit:0` 关闭周期限额。`requestWindowSeconds` 为 60–31536000 秒，桌面按分钟或小时设置。省略限制字段时，创建默认为关闭，编辑保留已有值。周期从首个有效模型请求开始，计数在当前网关进程内保存；热更新保留计数，停止并重启连接后重新计数。模型请求通过鉴权、模型权限及正文校验后计数，上游失败仍计数；健康检测、模型列表及限流拒绝不计入；公网检测中的实际模型生成请求会计数。HTTP 请求及 WebSocket 每次生成共享该密钥的限额，WS 空闲连接不占生成并发名额。
 
-日志查询省略 `keyId` 返回全部；单个密钥用 `/logs?keyId=内部ID`，多个密钥重复参数 `/logs?keyId=ID1&keyId=ID2`。先筛选再取 `limit` 条，按内部 ID 匹配，重命名或删除密钥不影响保留记录的筛选。没有通过鉴权的请求无法归属某个密钥，仅出现在全部查询中。
+日志查询省略 `keyId` 返回全部；单个密钥用 `/logs?keyId=内部ID`，多个密钥重复参数 `/logs?keyId=ID1&keyId=ID2`。先筛选，再按 offset 分页取 limit 条，按内部 ID 匹配，重命名或删除密钥不影响保留记录的筛选。没有通过鉴权的请求无法归属某个密钥，仅出现在全部查询中。
 
 修改密钥需填写 `name`。`mode` 为 `selected` 时，`allowed` 填写 `/models` 中的 `entries[].id`，不是模型名称；全局权限始终优先。编辑别名时保留原条目的 `id`，可保留已有授权；省略 `id` 表示新建别名。
 
@@ -100,4 +101,4 @@ Invoke-RestMethod -Uri "$($bridge.baseUrl)/api/v1/status" -Headers $headers
 
 错误：`401 UNAUTHORIZED` 管理令牌无效；`403 FORBIDDEN_ORIGIN` 来源或 Host 不符合本机调用要求；`404 NOT_FOUND` 接口不存在；`409 BUSY` 操作冲突；`400 INVALID_ARGUMENT/INVALID_JSON/OPERATION_FAILED` 参数或业务操作失败。
 
-日志只保留当前运行的最近 200 条请求及 100 条隧道日志。接口不提供任意文件读取、系统命令执行、剪贴板操作、文件选择弹窗或 Cloudflare 账户创建/绑定。当前版本须先启动桌面程序，不包含 exe 命令参数或独立后台服务。
+请求记录默认保留 200 条，可配置 100–10,000 条；隧道消息保留 100 条，均仅限本次运行。配置字段 recordRequestIP 和 showRequestBody 只控制显示，关闭后仍采集 IP 和有限正文预览；requestRecordLimit 设置保留数量，ipBlacklist 为单个 IPv4/IPv6 地址列表。普通日志查询不返回正文，正文通过 /logs/{id}/body 按需读取，详见 [请求记录](request-logs.md)。接口不提供任意文件读取、系统命令执行、剪贴板操作、文件选择弹窗或 Cloudflare 账户创建/绑定。当前版本须先启动桌面程序，不包含 exe 命令参数或独立后台服务。

@@ -1,6 +1,6 @@
 # Go beta 实现与现有项目对比
 
-> 历史报告：对应首次独立核心交付（提交 85fc529 / Go beta 0.1.0）。后续桌面移植和验证见 DESKTOP-0.3.0.md；下列“尚未移植”与测量数据均描述当时版本。
+> 历史报告：对应首次独立核心交付（提交 85fc529 / Go beta 0.1.0）。当前桌面说明见 [项目 README](../../README.md)；下列“尚未移植”与测量数据均描述当时版本。
 
 测试时间：2026-10-21T03:50:44.398Z。分支：beta/go-gateway；Node 基线：main 的 2d198bf，桌面版 0.2.1。
 
@@ -71,7 +71,7 @@ N:1 别名解决的是命名与授权解耦，本身不实现 A/B 或灰度；�
 ## 交付与复现
 
 - release/ScrollBridge-Go-Beta-0.1.0-win-x64.exe
-- beta/go-gateway/config.example.json、README.md、QUICKSTART.zh-CN.md
+- beta/go-gateway/config.example.json 与 README.md
 - scripts/build-go-beta.cjs、scripts/benchmark-go-beta.cjs、scripts/report-go-beta.cjs
 - benchmarks/results.json 与 security-scan.txt：不包含真实凭证或生产配置。
 

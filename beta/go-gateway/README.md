@@ -1,30 +1,28 @@
-# ScrollBridge Go Gateway
+# ScrollBridge Go 核心
 
-> 0.3.8 起已成为桌面主线。当前行为见根目录 README 和 `docs/0.3.8.md`；本文件保留早期 beta 部署示例。`limits.concurrent:0` 表示不限制，可显式设置正整数；已移除默认 64、配置 4096 和活动上游连接 4096 的固定上限。单密钥 `concurrent`、`requestLimit` 为 0 时关闭对应限制。
+这里是桌面主线使用的网关代码，也可独立运行。桌面使用方式见 [项目说明](../../README.md)；本文只说明独立核心的配置、策略及可选服务端能力。目录名保留早期 beta 命名，不代表当前桌面仍为 beta。
 
-分支 `beta/go-gateway` 现已接入 Electron 桌面。`release/ScrollBridge-0.3.0-beta-win-x64.exe` 为完整桌面 beta；普通版保留 Node 网关。桌面使用现有界面与 Windows 加密存储，通过匿名管道向 Go 子进程发送摘要和策略，不在磁盘写明文运行配置。供给密钥通过子进程环境传递；消费密钥明文仍只由桌面加密保存。详见 [桌面说明](DESKTOP-0.3.0.md)。
-
-以下命令行配置面向单独部署核心的操作人员；独立运行与桌面托管是两种模式，不要将同一账本目录同时交给两个进程。原始 0.1.0 的 exe 和性能报告为历史交付。
+桌面通过私有管道发送策略和消费密钥摘要，本地代理凭据通过子进程环境传递，不生成明文运行配置。独立模式使用自己的配置文件和账本；不要将同一账本目录交给两个进程。
 
 ## 启动
 
 在本目录使用 PowerShell 7：
 
-go.mod 要求修复后的 Go 1.26.10 或更新版本；启用默认 GOTOOLCHAIN=auto 时会下载经 Go 校验机制验证的对应工具链，不修改系统默认 Go。构建后应运行固定版本的扫描：`go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...`。
+Go 工具链版本见本目录的 go.mod。默认 GOTOOLCHAIN=auto 可下载对应工具链，不修改系统默认 Go；测试范围见 [测试指南](../../docs/testing.md)。
 
 ```powershell
-go build -trimpath -ldflags=-s -o ../../release/ScrollBridge-Go-Beta-0.1.0-win-x64.exe .
+go build -trimpath -ldflags=-s -o ../../release/scrollbridge-gateway.exe .
 Copy-Item config.example.json config.beta.json
-../../release/ScrollBridge-Go-Beta-0.1.0-win-x64.exe -keygen
+../../release/scrollbridge-gateway.exe -keygen
 ```
 
 `-keygen` 有意显示一次新密钥和 SHA-256，请自行保存密钥，仅将摘要填写到 `keys[].sha256`，然后设置 `enabled: true`。示例中的零摘要和禁用状态不能访问服务。填写真实 `actual` 模型 ID；如果修改原始 ID，也修改 `exposureIds` 中对应名称。费率都是示例值，不是厂商报价。
 
-在当前终端设置 `SCROLLBRIDGE_UPSTREAM_KEY` 环境变量，值为本地代理的供给密钥。不要写到命令历史、源码或 Git。环境变量只是进程传递手段，不等同于加密保险库；供给密钥长期保存仍应由现有桌面端的 Windows 安全存储负责。
+在当前终端设置 `SCROLLBRIDGE_UPSTREAM_KEY` 环境变量，值为本地代理的供给密钥。不要写到命令历史、源码或 Git。环境变量只是进程传递手段，不等同于加密保险库；桌面模式由同目录配置中的 AES-256-GCM 保存凭据；独立模式需自行管理环境变量及文件权限。
 
 ```powershell
-../../release/ScrollBridge-Go-Beta-0.1.0-win-x64.exe -config config.beta.json -check
-../../release/ScrollBridge-Go-Beta-0.1.0-win-x64.exe -config config.beta.json -state .beta-state
+../../release/scrollbridge-gateway.exe -config config.beta.json -check
+../../release/scrollbridge-gateway.exe -config config.beta.json -state .beta-state
 ```
 
 默认监听 `127.0.0.1:18453`，与正式版 18443 分开。`/healthz`、`/v1/models` 也要求消费密钥。若另建测试隧道，服务 URL 使用 `http://127.0.0.1:18453`；外部 HTTPS 继续由 Cloudflare 处理。程序不预填域名，也不会自动修改现有隧道。
@@ -40,7 +38,7 @@ Copy-Item config.example.json config.beta.json
 ## 流式、资源和上游池
 
 - 全局及单 key 并发上限，超限立即 429，不建立无界等待队列。
-- TCP 连接另有限额（启动时并发上限的 4 倍，至少 128）；读取请求最多 60 秒，避免空闲连接和未授权慢速上传绕过资源限制。
+- limits.concurrent 为 0 时不设固定并发及活动上游连接上限；正值会启用相应连接资源限制。单 key 的 concurrent、requestLimit 为 0 时分别关闭对应限制。
 - 请求体最多 32 MiB，JSON 深度最多 64 层，重复字段拒绝，避免模型字段解析分歧。
 - SSE 按事件读取、同步写出和 Flush，客户端慢时背压传回上游；单事件、累计输出及写超时均有限制。支持 CRLF、LF、多行 data、OpenAI / Responses / Anthropic / Gemini 的 usage 与结束标记。
 - 客户端断开、配置撤权、总超时、写超时、输出超限会取消上游。已送进 TCP 缓冲区的字节无法追回。
@@ -71,20 +69,20 @@ Copy-Item config.example.json config.beta.json
 
 本地账本是加锁、追加写、fsync 的 `quota.jsonl`，重启回放。破损日志拒绝启动，不擅自重置。目录不能由两个进程共用。额度是 lifetime 总量，没有按日重置；改 key 的名称或费率不会清空用量。保留 key ID 才能保留用量历史。尚无自动压缩与历史轮转，磁盘耗尽将停止服务。
 
-**无法仅凭流末尾的 usage 实现逐 token 精确扣款与欠费瞬间截断。** beta 使用额度预留、上游输出上限、累计字节硬限制及已报告超额检测，不宣称解决供应商不报告用量或无视上限的问题。
+**无法仅凭流末尾的 usage 实现逐 token 精确扣款与欠费瞬间截断。** 核心使用额度预留、上游输出上限、累计字节硬限制及已报告超额检测，不宣称解决供应商不报告用量或无视上限的问题。
 
 ## Redis 模式
 
-设置一个环境变量（例如 `SCROLLBRIDGE_REDIS_URL`）保存 Redis URL。远程应使用 rediss/TLS、ACL 与独立实例或命名空间。当前 beta 使用固定键前缀，不能承载多个互不信任的部署。
+设置一个环境变量（例如 `SCROLLBRIDGE_REDIS_URL`）保存 Redis URL。远程应使用 rediss/TLS、ACL 与独立实例或命名空间。当前实现使用固定键前缀，不能承载多个互不信任的部署。
 
 ```powershell
-../../release/ScrollBridge-Go-Beta-0.1.0-win-x64.exe -config config.beta.json -redis-env SCROLLBRIDGE_REDIS_URL -publish
-../../release/ScrollBridge-Go-Beta-0.1.0-win-x64.exe -redis-env SCROLLBRIDGE_REDIS_URL -state .beta-node-1
+../../release/scrollbridge-gateway.exe -config config.beta.json -redis-env SCROLLBRIDGE_REDIS_URL -publish
+../../release/scrollbridge-gateway.exe -redis-env SCROLLBRIDGE_REDIS_URL -state .beta-node-1
 ```
 
 Redis 保存版本化配置；Lua 检查版本单调递增并原子发布，Pub/Sub 只做唤醒，500 ms 轮询补偿丢失消息。鉴权、模型映射仍读本地不可变快照，不在每次普通请求上访问 Redis。开启额度时，预留与归还通过 Redis Lua 跨节点原子操作；客户端禁用自动重试，避免不确定执行结果造成重复退款。
 
-Redis 并不天然保证账本永不丢失。必须由部署方配置持久化、备份、禁用淘汰并保留 quota 键；故障转移丢写仍可能造成额度回退。此 beta 未实现共识账本、Redis Cluster/Sentinel 或故障转移的严格财务一致性。测试采用 miniredis，不代表真实 Redis 故障演练完成。
+Redis 并不天然保证账本永不丢失。必须由部署方配置持久化、备份、禁用淘汰并保留 quota 键；故障转移丢写仍可能造成额度回退。当前实现未实现共识账本、Redis Cluster/Sentinel 或故障转移的严格财务一致性。测试采用 miniredis，不代表真实 Redis 故障演练完成。
 
 ## 观测、测试与范围
 
@@ -95,11 +93,10 @@ go test ./... -count=1
 go vet ./...
 $env:CC = (Get-Command x86_64-w64-mingw32-gcc).Source
 go test -race ./... -count=1
-node ../../scripts/benchmark-go-beta.cjs
 ```
 
 支持 OpenAI chat/completions、completions、Responses HTTP/WebSocket、Anthropic messages、embedding、Google 原生 generateContent/streamGenerateContent/countTokens，及授权后的上游模型目录与单模型详情。`images: true` 开启 JSON 图像生成及 JSON/multipart 图像编辑，本地代理必须支持对应模型；`geminiImageCompatibility` 开启 Gemini 生图协议转换。
 
-已补齐原报告中列出的桌面、隧道生命周期和主要协议功能；支持 gzip、deflate 和 Brotli。桌面继承手动获取模型、开机启动应用后手动连接、托盘驻留、意外退出提示与配置保存。Redis、多供给池和 token 额度仍可在独立核心模式使用，桌面暂以一个本地代理作为供给入口。尚未声称获得企业生产认证，也未恢复已暂停的 RikkaHub 实机问题排查。
+支持 gzip、deflate 和 Brotli。语音接口及 HTTP 正文预览见 [语音说明](../../docs/speech-interface.md)和 [请求记录](../../docs/request-logs.md)。桌面只配置一个本地代理入口，费用 UI 暂未开放；Redis、多供给池和 token 额度属于独立核心的可选能力。原始性能对比见 [历史报告](REPORT.md)，不代表当前版本测试结果。
 
 设计参考：[Go HTTP streaming](https://pkg.go.dev/net/http)、[Redis Pub/Sub 的 at-most-once 语义](https://redis.io/docs/latest/develop/use-cases/pub-sub/)、[官方 go-redis](https://github.com/redis/go-redis)。依赖版本与校验和固定在 go.mod/go.sum，许可证见 THIRD_PARTY_NOTICES.md。
