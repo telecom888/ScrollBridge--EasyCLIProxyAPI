@@ -243,6 +243,13 @@ func TestOversizedModelCannotFloodDesktopControlPipe(t *testing.T) {
 		t.Fatal(code)
 	}
 	record := <-records
+	if preview, ok := record["requestBody"].(map[string]any); ok {
+		text, _ := preview["preview"].(string)
+		if len(text) > requestBodyPreviewLimit {
+			t.Fatal("unbounded request body preview")
+		}
+		delete(record, "requestBody")
+	}
 	b, _ := json.Marshal(record)
 	if len(b) > 4096 {
 		t.Fatal("unbounded record")

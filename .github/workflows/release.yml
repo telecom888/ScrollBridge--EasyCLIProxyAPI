@@ -49,7 +49,7 @@ jobs:
         run: node scripts/startup-smoke.cjs
       - name: Verify updated desktop window is visible
         run: node scripts/update-window-smoke.cjs
-      - name: Verify request IP, blacklist, retention and export
+      - name: Verify request IP, body preview, blacklist, retention and export
         run: node scripts/request-records-smoke.cjs
       - name: Upload three packages and update metadata
         shell: pwsh

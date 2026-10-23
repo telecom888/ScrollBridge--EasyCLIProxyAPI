@@ -278,10 +278,19 @@ func outputLimit(m map[string]any, path string, k *Key) (int64, error) {
 func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	rw := &recordWriter{ResponseWriter: w, writeSeconds: g.current.Load().cfg.Limits.WriteSeconds}
 	w = rw
+	capture, releaseCapture := g.captureRequestBody(r)
+	defer releaseCapture()
 	record := map[string]any{"time": time.Now().UTC().Format(time.RFC3339Nano), "method": r.Method, "path": r.URL.Path}
 	began := time.Now()
 	defer func() {
 		if g.record != nil && rw.status != 101 {
+			if capture != nil {
+				record["requestBody"] = capture.finish(w, r)
+			} else if r.Body != nil && r.Body != http.NoBody && r.ContentLength != 0 {
+				record["requestBody"] = map[string]any{"state": "unavailable"}
+			} else {
+				record["requestBody"] = map[string]any{"state": "empty"}
+			}
 			status := rw.status
 			if status == 0 {
 				status = 499

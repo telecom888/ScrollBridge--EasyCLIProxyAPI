@@ -25,6 +25,20 @@ const root=path.resolve(__dirname,'..');
   await page.waitForFunction(()=>snapshot.records.some(r=>r.requestIP==='2001:db8::99'&&r.status===401));
   await page.click('[data-page=records]');await page.selectOption('#record-limit','1000');await page.waitForFunction(()=>snapshot.config.requestRecordLimit===1000&&!pending);
   assert.ok((await page.locator('#requests-table').innerText()).includes('2001:db8::99'));
+  // Capture an unauthenticated scanner payload while the display switch is off.
+  const scannerBody='{"probe":"<img src=x onerror=globalThis.bodyExecuted=true>"}';
+  const probe=await fetch(`http://127.0.0.1:${port}/app`,{method:'POST',headers:{'Content-Type':'application/json'},body:scannerBody});await probe.text();assert.equal(probe.status,401);
+  await page.waitForFunction(()=>snapshot.records.some(r=>r.path==='/app'));
+  assert.ok(await page.evaluate(()=>snapshot.records.every(r=>!Object.hasOwn(r,'requestBody'))));
+  assert.match(await page.evaluate(async()=>{try{await call('getRequestBody',{id:snapshot.records.find(r=>r.path==='/app').id});return '';}catch(e){return e.message;}}),/开启显示请求体/);
+  await page.evaluate(async()=>render(await call('save',{config:{showRequestBody:true}})));
+  await page.locator('tr').filter({has:page.locator('td.path', {hasText:'/app'})}).locator('[data-view-body]').click();
+  await page.waitForFunction(()=>$('request-body-dialog').open);
+  assert.ok((await page.locator('#request-body-content').innerText()).includes('<img src=x'));
+  assert.equal(await page.evaluate(()=>globalThis.bodyExecuted),undefined);assert.equal(await page.locator('#request-body-content img').count(),0);
+  await page.screenshot({path:path.join(scratch,'request-body-light.png')});
+  await page.click('#close-request-body');assert.equal(await page.locator('#request-body-content').innerText(),'');
+  await page.evaluate(async()=>render(await call('save',{config:{showRequestBody:false}})));
   await Promise.all(Array.from({length:205},()=>send('192.0.2.2')));await page.waitForFunction(()=>snapshot.records.length>=209);assert.equal(await page.locator('#requests-table tbody tr').count(),100);await page.click('#record-next');assert.equal(await page.locator('#requests-table tbody tr').count(),100);
   await page.click('#export-records');await page.locator('#export-records-form button[type=submit]').click();await page.waitForFunction(()=>!pending);const exported=await app.evaluate(()=>global.exports.at(-1));const csv=fs.readFileSync(exported,'utf8');assert.ok(csv.includes('192.0.2.2'));assert.ok(csv.split('\r\n').length>200);
   const fixture=await page.evaluate(()=>({recordCount:snapshot.records.length,keys:snapshot.keys}));
@@ -38,6 +52,6 @@ const root=path.resolve(__dirname,'..');
   await page.evaluate(async()=>{render(await call('save',{config:{recordRequestIP:true}}));});
   await page.click('[data-page=settings]');await page.waitForTimeout(250);await page.locator('#page-settings .panel').filter({has:page.getByRole('heading',{name:'连接',exact:true})}).screenshot({path:path.join(scratch,'settings-light.png')});await page.click('[data-page=records]');await page.waitForTimeout(250);await page.screenshot({path:path.join(scratch,'records-light.png')});await page.click('#theme-toggle');await page.waitForFunction(()=>!pending);await page.waitForTimeout(250);await page.screenshot({path:path.join(scratch,'records-dark.png')});
   assert.deepEqual(errors,[]);await app.close();app=await launch();page=await app.firstWindow();await page.waitForFunction(()=>typeof snapshot!=="undefined"&&!!snapshot);assert.equal(await page.evaluate(()=>snapshot.records.length),0);assert.equal(await page.evaluate(()=>snapshot.config.requestRecordLimit),100);assert.equal(await page.evaluate(()=>snapshot.config.updateSource),'mirror');
-  console.log('Always-record IP, display toggle, blacklist, pagination, export, retention and restart passed:',scratch);
+  console.log('IP and body capture, display toggles, blacklist, pagination, export, retention and restart passed:',scratch);
  }finally{if(app)await app.close();up.closeAllConnections();await new Promise(r=>up.close(r));}
 })().catch(e=>{console.error(e);process.exitCode=1});

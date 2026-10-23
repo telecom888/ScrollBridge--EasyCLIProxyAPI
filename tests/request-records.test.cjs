@@ -36,3 +36,16 @@ test('export uses an explicit field list, honors IP opt-out and makes CSV safe f
  const csv=exportRecords(rows,{format:'csv',includeIP:true});assert.ok(csv.startsWith('\uFEFF'));assert.ok(csv.includes("'=HYPERLINK"));assert.ok(csv.includes('x,""\nnext'));assert.ok(csv.includes('2001:db8::1'));assert.ok(!csv.includes('PRIVATE'));
  const json=JSON.parse(exportRecords(rows,{format:'json',includeIP:false}));assert.equal(json[0].time,rows[0].time);assert.equal('requestIP' in json[0],false);assert.equal('secret' in json[0],false);
 });
+test('request bodies stay out of snapshots and exports; memory budget, resize and clear release previews',()=>{
+ const records=new RequestRecords(200,12);
+ records.add({id:'a',requestBody:{state:'text',preview:'first-body'}});
+ assert.equal(records.all()[0].requestBody,undefined);
+ assert.equal(records.all(true,true)[0].requestBody.preview,undefined);
+ assert.equal(records.body('a').preview,'first-body');
+ records.add({id:'b',requestBody:{state:'text',preview:'next-body'}});
+ assert.equal(records.body('a').state,'evicted');assert.equal(records.body('b').preview,'next-body');assert.ok(records.bodyBytes<=12);
+ records.resize(100);assert.equal(records.body('b').preview,'next-body');
+ assert.ok(!exportRecords(records.all(true,true),{format:'json',includeIP:true}).includes('next-body'));
+ records.clear();assert.equal(records.bodyBytes,0);assert.throws(()=>records.body('b'));
+ assert.throws(()=>validateConfig({showRequestBody:1}));
+});

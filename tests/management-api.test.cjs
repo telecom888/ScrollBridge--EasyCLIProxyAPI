@@ -22,6 +22,15 @@ test('management API is separate, loopback only and requires its own token; brow
   const data=await r.json();assert.ok(data.data.operations.some(row=>row.path.endsWith('/keys/{id}/reveal')));
   assert.ok(!JSON.stringify(data).includes(f.discovery.token));
 });
+test('request body preview is an explicit authenticated operation and preserves the desktop display gate',async t=>{
+ let visible=false;const f=await fixture(t,async(action,payload)=>{
+  assert.equal(action,'getRequestBody');assert.equal(payload.id,'request-1');
+  if(!visible)throw Error('请先开启显示请求体');return {state:'text',preview:'{"probe":true}'};
+ });
+ assert.equal((await fetch(f.baseUrl+'/api/v1/logs/request-1/body')).status,401);
+ assert.equal((await f.request('/logs/request-1/body')).status,400);
+ visible=true;const value=await(await f.request('/logs/request-1/body')).json();assert.equal(value.data.preview,'{"probe":true}');
+});
 test('invalid bodies and private UI actions cannot reach desktop operations',async t=>{
   const seen=[];const f=await fixture(t,async(...args)=>{seen.push(args);return {status:'stopped'};});
   for(const [route,method,payload,status]of [

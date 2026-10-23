@@ -250,3 +250,5 @@ html[data-theme=dark] .setting-row input[type=checkbox][role=switch]::before,htm
 #blacklist-list{max-height:360px;overflow:auto}.blacklist-item{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 0;border-bottom:1px solid var(--line)}.blacklist-item code{overflow-wrap:anywhere;min-width:0;font-size:14px}
 #export-records-dialog{width:min(400px,90vw)}#export-records-form>label{display:flex;flex-direction:column;gap:8px;margin-top:20px}#export-records-form select{width:100%}
 @media(max-width:800px){.record-actions{gap:8px}.record-pagination{justify-content:center;flex-wrap:wrap}.blacklist-add{align-items:stretch}}
+
+#request-body-dialog{width:min(860px,92vw);max-height:88vh;overflow:auto}#request-body-content{background:var(--code);border:1px solid var(--line);border-radius:8px;padding:16px;font:14px/1.6 ui-monospace,Consolas,monospace;white-space:pre-wrap;overflow-wrap:anywhere;max-height:55vh;overflow:auto;user-select:text}#request-body-meta{margin:12px 0}#requests-table{overflow-x:auto}[data-view-body]{white-space:nowrap}

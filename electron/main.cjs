@@ -32,7 +32,7 @@ if (!ownsProfile) app.quit();
 let window, tray, store, config, secrets, gateway, tunnel, closing = false, busy = false;
 let modelRefresh, managementAPI, updater, startup;
 let status = 'stopped', message = '', logs = [], localDiagnostic = null, publicDiagnostic = null;
-const view = () => ({ config, keys:config.accessKeys.map(key=>({...key,masked:`${secrets.keyValues[key.id].slice(0,6)}…${secrets.keyValues[key.id].slice(-4)}`})), modelEntries:entries(config),hasUpstreamKey: !!secrets.upstreamKey, hasTunnelToken: !!secrets.tunnelToken, gatewayRunning: !!gateway, status, message, records:requestRecords.all(config.recordRequestIP), logs, localDiagnostic, publicDiagnostic, update:updater?.snapshot(),startup:startup?.snapshot(),version: app.getVersion(),features:{billing:gatewayEngine==='go',keyLimits:gatewayEngine==='go'} });
+const view = () => ({ config, keys:config.accessKeys.map(key=>({...key,masked:`${secrets.keyValues[key.id].slice(0,6)}…${secrets.keyValues[key.id].slice(-4)}`})), modelEntries:entries(config),hasUpstreamKey: !!secrets.upstreamKey, hasTunnelToken: !!secrets.tunnelToken, gatewayRunning: !!gateway, status, message, records:requestRecords.all(config.recordRequestIP,config.showRequestBody), logs, localDiagnostic, publicDiagnostic, update:updater?.snapshot(),startup:startup?.snapshot(),version: app.getVersion(),features:{billing:gatewayEngine==='go',keyLimits:gatewayEngine==='go'} });
 async function synchronizeGateway(){try{await gateway?.refreshPolicy();}catch{await stop();state('error','配置已保存，网关更新失败，连接已停止');throw new Error('配置已保存，网关更新失败，请重新连接');}}
 async function commit(next,nextSecrets=secrets) {
   next=validateConfig(next);store.save(next,nextSecrets);config=next;secrets=nextSecrets;
@@ -44,7 +44,7 @@ function publish() { recordChanges.clear();if (window && !window.isDestroyed()) 
 let recordPublishTimer;
 function publishRecords() {
   if(recordPublishTimer)return;
-  recordPublishTimer=setTimeout(()=>{recordPublishTimer=null;if(window && !window.isDestroyed() && window.isVisible())window.webContents.send('records',{records:[...recordChanges.values()].sort((a,b)=>b.sequence-a.sequence).map(row=>{if(config.recordRequestIP)return row;const {requestIP:_,...safe}=row;return safe;}),logs,incremental:true,limit:config.requestRecordLimit});recordChanges.clear();},100);
+  recordPublishTimer=setTimeout(()=>{recordPublishTimer=null;if(window && !window.isDestroyed() && window.isVisible())window.webContents.send('records',{records:[...recordChanges.values()].sort((a,b)=>b.sequence-a.sequence).map(row=>{const safe={...row};if(!config.recordRequestIP)delete safe.requestIP;if(!config.showRequestBody)delete safe.requestBody;return safe;}),logs,incremental:true,limit:config.requestRecordLimit});recordChanges.clear();},100);
 }
 function state(next, detail = '') { status = next; message = detail; publish(); }
 function log(line) { logs.unshift({ time: new Date().toISOString(), text: line }); if(logs.length>100)logs.length=100;publishRecords(); }
@@ -184,10 +184,18 @@ const actions = {
     return answer.response===1?save({config:{ipBlacklist:[...config.ipBlacklist,ip]}}):view();
   },
   copyRequestIP: payload=>{clipboard.writeText(normalizeIP(payload?.ip));return true;},
+  getRequestBody: payload=>{
+    if(!config.showRequestBody)throw Error('请先开启显示请求体');
+    if(typeof payload?.id!=='string'||payload.id.length>100)throw Error('请求记录无效');
+    const body=requestRecords.body(payload.id);
+    if(typeof body.preview!=='string')return body;
+    let preview=body.preview;for(const value of [secrets.upstreamKey,secrets.tunnelToken,...Object.values(secrets.keyValues)])if(value)preview=preview.split(value).join('[已隐藏密钥]');
+    return {...body,preview};
+  },
   exportRecords: async payload=>{
     if(!payload || !['csv','json'].includes(payload.format) || !['all','filtered'].includes(payload.scope))throw Error('导出选项无效');
     const ids=payload.keyIds;if(ids!==undefined && (!Array.isArray(ids)||ids.some(id=>typeof id!=='string'||id.length>80)))throw Error('密钥筛选无效');
-    const rows=requestRecords.all(config.recordRequestIP).filter(row=>payload.scope==='all'||ids===undefined||ids.includes(row.keyId));
+    const rows=requestRecords.all(config.recordRequestIP,config.showRequestBody).filter(row=>payload.scope==='all'||ids===undefined||ids.includes(row.keyId));
     if(!rows.length)throw Error('暂无可导出的请求记录');
     const content=exportRecords(rows,{format:payload.format,includeIP:config.recordRequestIP});
     const result=await dialog.showSaveDialog(window,{defaultPath:'ScrollBridge-requests-'+new Date().toISOString().replace(/[:.]/g,'-')+'.'+payload.format,filters:[{name:payload.format.toUpperCase(),extensions:[payload.format]}]});
@@ -201,7 +209,7 @@ function updateModels(knownModels) {
 }
 async function invokeAction(action,payload) {
   if(!Object.hasOwn(actions,action))throw Object.assign(new Error('请求无效'),{status:404,code:'NOT_FOUND'});
-  const mutation=!['snapshot','copyRequestIP','exportRecords','copy','copyKey','revealKey','openCloudflare','openGuide','openData','openRepository','checkUpdates','downloadUpdate','installUpdate'].includes(action);
+  const mutation=!['snapshot','getRequestBody','copyRequestIP','exportRecords','copy','copyKey','revealKey','openCloudflare','openGuide','openData','openRepository','checkUpdates','downloadUpdate','installUpdate'].includes(action);
   if(closing)throw Object.assign(new Error('程序正在退出'),{status:503,code:'SHUTTING_DOWN'});
   if(mutation && busy)throw Object.assign(new Error('请等待当前操作完成'),{status:409,code:'BUSY'});
   if(mutation)busy=true;
