@@ -37,7 +37,7 @@ const root=path.resolve(__dirname,'..');
   assert.ok((await page.locator('#request-body-content').innerText()).includes('<img src=x'));
   assert.equal(await page.evaluate(()=>globalThis.bodyExecuted),undefined);assert.equal(await page.locator('#request-body-content img').count(),0);
   await page.screenshot({path:path.join(scratch,'request-body-light.png')});
-  await page.click('#close-request-body');assert.equal(await page.locator('#request-body-content').innerText(),'');
+  await page.click('#close-request-body');await page.waitForFunction(()=>!$('request-body-dialog').open&&$('request-body-content').textContent==='');
   await page.evaluate(async()=>render(await call('save',{config:{showRequestBody:false}})));
   await Promise.all(Array.from({length:205},()=>send('192.0.2.2')));await page.waitForFunction(()=>snapshot.records.length>=209);assert.equal(await page.locator('#requests-table tbody tr').count(),100);await page.click('#record-next');assert.equal(await page.locator('#requests-table tbody tr').count(),100);
   await page.click('#export-records');await page.locator('#export-records-form button[type=submit]').click();await page.waitForFunction(()=>!pending);const exported=await app.evaluate(()=>global.exports.at(-1));const csv=fs.readFileSync(exported,'utf8');assert.ok(csv.includes('192.0.2.2'));assert.ok(csv.split('\r\n').length>200);
