@@ -17,16 +17,18 @@ import (
 )
 
 type Config struct {
-	Version      int64      `json:"version"`
-	Listen       string     `json:"listen"`
-	Limits       Limits     `json:"limits"`
-	Images       bool       `json:"images"`
-	Speech       bool       `json:"speech"`
-	GeminiImages bool       `json:"geminiImageCompatibility"`
-	Billing      Billing    `json:"billing"`
-	Keys         []Key      `json:"keys"`
-	Models       []Model    `json:"models"`
-	Upstreams    []Upstream `json:"upstreams"`
+	Version         int64      `json:"version"`
+	Listen          string     `json:"listen"`
+	Limits          Limits     `json:"limits"`
+	Images          bool       `json:"images"`
+	Speech          bool       `json:"speech"`
+	RecordRequestIP bool       `json:"recordRequestIP"`
+	IPBlacklist     []string   `json:"ipBlacklist"`
+	GeminiImages    bool       `json:"geminiImageCompatibility"`
+	Billing         Billing    `json:"billing"`
+	Keys            []Key      `json:"keys"`
+	Models          []Model    `json:"models"`
+	Upstreams       []Upstream `json:"upstreams"`
 }
 type Limits struct {
 	Concurrent     int   `json:"concurrent"`
@@ -80,6 +82,7 @@ type snapshot struct {
 	grants          map[string]map[string]bool
 	ordered         []entry
 	accessSignature string
+	blockedIPs      map[string]bool
 }
 
 var validID = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$`)
@@ -104,6 +107,17 @@ func decodeConfig(b []byte) (*snapshot, error) {
 	return compile(c)
 }
 func compile(c Config) (*snapshot, error) {
+	c.IPBlacklist = append([]string(nil), c.IPBlacklist...)
+	if len(c.IPBlacklist) > 10000 {
+		return nil, errors.New("IP blacklist exceeds 10000 entries")
+	}
+	for i, value := range c.IPBlacklist {
+		ip, ok := normalizedIP(value)
+		if !ok {
+			return nil, errors.New("invalid blacklisted IP")
+		}
+		c.IPBlacklist[i] = ip.String()
+	}
 	if c.Version < 1 || c.Version > 1<<50 {
 		return nil, errors.New("version must be positive")
 	}
@@ -144,6 +158,10 @@ func compile(c Config) (*snapshot, error) {
 		return nil, errors.New("invalid configuration size")
 	}
 	s := &snapshot{cfg: c, keys: map[[32]byte]*Key{}, byID: map[string]*Key{}, names: map[string]entry{}, grants: map[string]map[string]bool{}}
+	s.blockedIPs = map[string]bool{}
+	for _, ip := range c.IPBlacklist {
+		s.blockedIPs[ip] = true
+	}
 	if err := validateBilling(&s.cfg.Billing); err != nil {
 		return nil, err
 	}
@@ -256,6 +274,8 @@ func compile(c Config) (*snapshot, error) {
 	}
 	access := s.cfg
 	access.Version = 0
+	access.RecordRequestIP = false
+	access.IPBlacklist = nil
 	access.Billing = Billing{}
 	access.Models = append([]Model(nil), s.cfg.Models...)
 	for i := range access.Models {

@@ -239,3 +239,14 @@ html[data-theme=dark] .setting-row input[type=checkbox][role=switch]::before,htm
 .update-progress-meta{color:var(--muted);margin-top:6px;font-size:13px;flex-wrap:wrap}
 #update-progress{display:block;width:100%;height:8px;margin-top:8px;accent-color:var(--accent)}
 @media(max-width:800px){.update-source-field{align-items:flex-start;flex-direction:column;gap:8px}#download-update{margin-left:0}.update-actions{gap:8px}}
+.record-actions,.record-pagination,.blacklist-add{display:flex;gap:12px;align-items:center}
+.record-pagination{justify-content:flex-end;margin-top:20px;font-size:14px}
+#record-limit-form{display:flex;align-items:center;gap:8px}#record-limit-form[hidden]{display:none}
+#record-limit-custom{width:120px}.request-ip{font:inherit;font-family:ui-monospace,monospace;color:var(--ink);background:none;border:0;padding:0;text-align:left;overflow-wrap:anywhere;max-width:240px;cursor:pointer}
+.request-ip:hover{text-decoration:underline;text-underline-offset:3px}.record-reason{display:block;font-size:13px;color:var(--muted);margin-top:4px}
+#request-ip-menu{position:fixed;inset:auto;margin:0;padding:6px;border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--ink);min-width:170px}
+#request-ip-menu button{display:block;width:100%;text-align:left;border:0;background:none;padding:10px 12px;color:inherit;font-size:14px;border-radius:6px}#request-ip-menu button:hover{background:var(--code)}
+#ip-blacklist-dialog{width:min(540px,90vw)}.blacklist-add{margin:8px 0 20px}.blacklist-add input{flex:1;min-width:0}#blacklist-search{width:100%;margin-bottom:12px}
+#blacklist-list{max-height:360px;overflow:auto}.blacklist-item{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:12px 0;border-bottom:1px solid var(--line)}.blacklist-item code{overflow-wrap:anywhere;min-width:0;font-size:14px}
+#export-records-dialog{width:min(400px,90vw)}#export-records-form>label{display:flex;flex-direction:column;gap:8px;margin-top:20px}#export-records-form select{width:100%}
+@media(max-width:800px){.record-actions{gap:8px}.record-pagination{justify-content:center;flex-wrap:wrap}.blacklist-add{align-items:stretch}}

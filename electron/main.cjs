@@ -1,4 +1,6 @@
 const { app, BrowserWindow, ipcMain, dialog, shell, clipboard, nativeImage, Tray, Menu, session, net } = require('electron');
+const {RequestRecords,normalizeIP,exportRecords}=require('../lib/request-records.cjs');
+const requestRecords=new RequestRecords();
 const fs = require('node:fs');
 const path = require('node:path');
 const { parseCPA } = require('../lib/import-cpa.cjs');
@@ -29,19 +31,20 @@ const ownsProfile = app.requestSingleInstanceLock();
 if (!ownsProfile) app.quit();
 let window, tray, store, config, secrets, gateway, tunnel, closing = false, busy = false;
 let modelRefresh, managementAPI, updater, startup;
-let status = 'stopped', message = '', records = [], logs = [], localDiagnostic = null, publicDiagnostic = null;
-const view = () => ({ config, keys:config.accessKeys.map(key=>({...key,masked:`${secrets.keyValues[key.id].slice(0,6)}…${secrets.keyValues[key.id].slice(-4)}`})), modelEntries:entries(config),hasUpstreamKey: !!secrets.upstreamKey, hasTunnelToken: !!secrets.tunnelToken, gatewayRunning: !!gateway, status, message, records, logs, localDiagnostic, publicDiagnostic, update:updater?.snapshot(),startup:startup?.snapshot(),version: app.getVersion(),features:{billing:gatewayEngine==='go',keyLimits:gatewayEngine==='go'} });
+let status = 'stopped', message = '', logs = [], localDiagnostic = null, publicDiagnostic = null;
+const view = () => ({ config, keys:config.accessKeys.map(key=>({...key,masked:`${secrets.keyValues[key.id].slice(0,6)}…${secrets.keyValues[key.id].slice(-4)}`})), modelEntries:entries(config),hasUpstreamKey: !!secrets.upstreamKey, hasTunnelToken: !!secrets.tunnelToken, gatewayRunning: !!gateway, status, message, records:requestRecords.all(config.recordRequestIP), logs, localDiagnostic, publicDiagnostic, update:updater?.snapshot(),startup:startup?.snapshot(),version: app.getVersion(),features:{billing:gatewayEngine==='go',keyLimits:gatewayEngine==='go'} });
 async function synchronizeGateway(){try{await gateway?.refreshPolicy();}catch{await stop();state('error','配置已保存，网关更新失败，连接已停止');throw new Error('配置已保存，网关更新失败，请重新连接');}}
 async function commit(next,nextSecrets=secrets) {
   next=validateConfig(next);store.save(next,nextSecrets);config=next;secrets=nextSecrets;
   publicDiagnostic=null;await synchronizeGateway();publish();return view();
 }
 function findKey(id) {const key=config.accessKeys.find(row=>row.id===id);if(!key)throw new Error('密钥不存在');return key;}
-function publish() { if (window && !window.isDestroyed()) window.webContents.send('update', view()); }
+const recordChanges=new Map();
+function publish() { recordChanges.clear();if (window && !window.isDestroyed()) window.webContents.send('update', view()); }
 let recordPublishTimer;
 function publishRecords() {
   if(recordPublishTimer)return;
-  recordPublishTimer=setTimeout(()=>{recordPublishTimer=null;if(window && !window.isDestroyed() && window.isVisible())window.webContents.send('records',{records,logs});},100);
+  recordPublishTimer=setTimeout(()=>{recordPublishTimer=null;if(window && !window.isDestroyed() && window.isVisible())window.webContents.send('records',{records:[...recordChanges.values()].sort((a,b)=>b.sequence-a.sequence).map(row=>{if(config.recordRequestIP)return row;const {requestIP:_,...safe}=row;return safe;}),logs,incremental:true,limit:config.requestRecordLimit});recordChanges.clear();},100);
 }
 function state(next, detail = '') { status = next; message = detail; publish(); }
 function log(line) { logs.unshift({ time: new Date().toISOString(), text: line }); if(logs.length>100)logs.length=100;publishRecords(); }
@@ -63,7 +66,7 @@ async function save(payload = {}) {
     if(loginRequested)startup.change(next.launchAtLogin,()=>store.save(next,nextSecrets));
     else store.save(next,nextSecrets);
   }catch(error){publish();throw error;}
-  config = next; secrets = nextSecrets;
+  config = next; secrets = nextSecrets;requestRecords.resize(config.requestRecordLimit);
   if (payload.config?.diagnosticModel !== undefined || payload.config?.diagnosticKeyId !== undefined) publicDiagnostic = null;
   if (payload.config?.hostname !== undefined || payload.tunnelToken || payload.clearUpstreamKey || payload.upstreamKey || payload.config?.upstream !== undefined) {localDiagnostic=null;publicDiagnostic=null;}
   if(refreshChanged)modelRefresh?.reschedule();
@@ -140,7 +143,7 @@ const actions = {
     state('starting');
     try {
       await fetchModels(config,secrets);
-      gateway = await startGateway(config, secrets, record => { const index=record.id?records.findIndex(row=>row.id===record.id):-1;if(index>=0)records[index]=record;else records.unshift(record);if(records.length>200)records.length=200;publishRecords(); }, { executable:app.isPackaged?path.join(process.resourcesPath,'vendor','scrollbridge-gateway.exe'):path.join(app.getAppPath(),'vendor','scrollbridge-gateway.exe'),stateDir:path.join(app.getPath('userData'),'gateway-go'),onExit:()=>{void stop().then(()=>state('error','网关意外退出，请重新连接'));},getConfig:()=>config,getSecrets:()=>secrets });
+      gateway = await startGateway(config, secrets, record => { requestRecords.resize(config.requestRecordLimit);const row=requestRecords.add(record);if(window && !window.isDestroyed() && window.isVisible())recordChanges.set(row.id,row);if(recordChanges.size>config.requestRecordLimit)recordChanges.delete(recordChanges.keys().next().value);publishRecords(); }, { executable:app.isPackaged?path.join(process.resourcesPath,'vendor','scrollbridge-gateway.exe'):path.join(app.getAppPath(),'vendor','scrollbridge-gateway.exe'),stateDir:path.join(app.getPath('userData'),'gateway-go'),onExit:()=>{void stop().then(()=>state('error','网关意外退出，请重新连接'));},getConfig:()=>config,getSecrets:()=>secrets });
       const executable = app.isPackaged ? path.join(process.resourcesPath, 'vendor', 'cloudflared.exe') : path.join(app.getAppPath(), 'vendor', 'cloudflared.exe');
       tunnel = startTunnel({ executable, token: secrets.tunnelToken, protocol: config.protocol, onState: state, onLog: log });
       log('网关已启动，等待隧道连接');
@@ -169,7 +172,28 @@ const actions = {
   openCloudflare: () => shell.openExternal('https://dash.cloudflare.com/'),
   openRepository: () => shell.openExternal('https://github.com/'+REPOSITORY),
   openGuide: () => shell.openExternal('https://developers.cloudflare.com/tunnel/get-started/'),
-  clearLogs: () => { records = []; logs = []; publish(); return true; },
+  clearLogs: () => { requestRecords.clear();logs=[];publish();return true; },
+  setRecordLimit: async payload=>{
+    const limit=Number(payload?.limit);if(!Number.isInteger(limit)||limit<100||limit>10000)throw Error('记录数量须为 100–10000');
+    if(requestRecords.size>limit){const answer=await dialog.showMessageBox(window,{type:'question',message:'减少保留数量？',detail:'将删除最旧的 '+(requestRecords.size-limit)+' 条请求记录。',buttons:['取消','确认'],defaultId:0,cancelId:0});if(answer.response!==1)return view();}
+    return save({config:{requestRecordLimit:limit}});
+  },
+  blockIP: async payload=>{
+    const ip=normalizeIP(payload?.ip);if(config.ipBlacklist.includes(ip))return view();
+    const answer=await dialog.showMessageBox(window,{type:'question',message:'屏蔽 '+ip+'？',detail:'该 IP 的后续请求将被拒绝，可在设置中移除。',buttons:['取消','加入黑名单'],defaultId:0,cancelId:0});
+    return answer.response===1?save({config:{ipBlacklist:[...config.ipBlacklist,ip]}}):view();
+  },
+  copyRequestIP: payload=>{clipboard.writeText(normalizeIP(payload?.ip));return true;},
+  exportRecords: async payload=>{
+    if(!payload || !['csv','json'].includes(payload.format) || !['all','filtered'].includes(payload.scope))throw Error('导出选项无效');
+    const ids=payload.keyIds;if(ids!==undefined && (!Array.isArray(ids)||ids.some(id=>typeof id!=='string'||id.length>80)))throw Error('密钥筛选无效');
+    const rows=requestRecords.all(config.recordRequestIP).filter(row=>payload.scope==='all'||ids===undefined||ids.includes(row.keyId));
+    if(!rows.length)throw Error('暂无可导出的请求记录');
+    const content=exportRecords(rows,{format:payload.format,includeIP:config.recordRequestIP});
+    const result=await dialog.showSaveDialog(window,{defaultPath:'ScrollBridge-requests-'+new Date().toISOString().replace(/[:.]/g,'-')+'.'+payload.format,filters:[{name:payload.format.toUpperCase(),extensions:[payload.format]}]});
+    if(result.canceled || !result.filePath)return {canceled:true};
+    await fs.promises.writeFile(result.filePath,content,'utf8');return {count:rows.length};
+  },
   openData: () => shell.openPath(configDirectory)
 };
 function updateModels(knownModels) {
@@ -177,7 +201,7 @@ function updateModels(knownModels) {
 }
 async function invokeAction(action,payload) {
   if(!Object.hasOwn(actions,action))throw Object.assign(new Error('请求无效'),{status:404,code:'NOT_FOUND'});
-  const mutation=!['snapshot','copy','copyKey','revealKey','openCloudflare','openGuide','openData','openRepository','checkUpdates','downloadUpdate','installUpdate'].includes(action);
+  const mutation=!['snapshot','copyRequestIP','exportRecords','copy','copyKey','revealKey','openCloudflare','openGuide','openData','openRepository','checkUpdates','downloadUpdate','installUpdate'].includes(action);
   if(closing)throw Object.assign(new Error('程序正在退出'),{status:503,code:'SHUTTING_DOWN'});
   if(mutation && busy)throw Object.assign(new Error('请等待当前操作完成'),{status:409,code:'BUSY'});
   if(mutation)busy=true;

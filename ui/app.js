@@ -44,6 +44,7 @@ function page(name) {
   $('page-title').textContent = {connection:'连接',access:'接入',keys:'密钥',catalog:'模型',records:'记录',settings:'设置'}[name];
   if(name==='records')renderRecords();
   reveal($(`page-${name}`)); reveal(document.querySelector('.page-heading'));
+  window.scrollTo(0,0);
 }
 document.querySelectorAll('[data-page]').forEach(el => el.onclick = () => page(el.dataset.page));
 function applyTheme(theme) { const resolved = theme === 'system' ? (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : theme; document.documentElement.dataset.theme = resolved; $('theme-toggle').innerHTML = icon(resolved === 'dark' ? 'sun' : 'moon'); document.querySelectorAll('[data-theme]').forEach(el => el.classList.toggle('active', el.dataset.theme === theme)); }
@@ -64,7 +65,7 @@ function render(s) {
   $('imagesEnabled').checked = s.config.imagesEnabled;
   $('geminiImageCompatibility').checked = s.config.geminiImageCompatibility;
   $('speechEnabled').checked = s.config.speechEnabled;
-  renderModelRefreshSettings();renderManagement();renderDiagnosticModels();renderUpdates();
+  renderRecordSettings();renderModelRefreshSettings();renderManagement();renderDiagnosticModels();renderUpdates();
   $('version').textContent = `v${s.version.replace(/-beta(?:\.\d+)?$/,' beta')}`; renderExample(); renderRecords(); renderDiagnostics(); renderModelCatalog();
 }
 for (const id of ['upstream','port','hostname','upstreamKey','tunnelToken']) $(id).addEventListener('input', () => { dirty = true; });
@@ -157,18 +158,7 @@ function renderDiagnostics() {
   }
 }
 function renderRecords() {
-  const requests=$('requests-table'),records=filteredRecords();
-  if (!records.length) replaceContent(requests,`<div class="empty">${icon('file')}${$('record-filter-mode').value==='all'?'暂无请求':'所选密钥暂无请求'}</div>`);
-  else {
-    if(!requests.querySelector('tbody')) requests.innerHTML='<table><thead><tr><th>时间</th><th>密钥</th><th>方法</th><th>模型</th><th>路径</th><th>状态</th><th>耗时</th></tr></thead><tbody></tbody></table>';
-    const occurrences=new Map();
-    const rows=records.map(r=>{
-      const signature=JSON.stringify([r.time,r.keyId,r.method,r.model,r.actualModel,r.path,r.status,r.ms]);
-      const count=occurrences.get(signature)||0; occurrences.set(signature,count+1);
-      return `<tr data-row-key="${escapeHTML(`${signature}:${count}`)}"><td>${time(r.time)}</td><td>${escapeHTML(r.keyName || '—')}</td><td>${escapeHTML(r.method)}</td><td class="record-model"><span>${escapeHTML(r.model || '—')}</span>${r.actualModel && r.actualModel!==r.model?`<small>实际模型：${escapeHTML(r.actualModel)}</small>`:''}</td><td class="path">${escapeHTML(r.path)}</td><td><span class="status-pill ${r.status >= 400 ? 'bad' : ''}">${r.status}</span></td><td>${r.ms} ms</td></tr>`;
-    }).join('');
-    reconcileRows(requests.querySelector('tbody'),rows,row=>row.dataset.rowKey);
-  }
+  renderRequestRecords();
   const logs=$('tunnel-logs'), occurrences=new Map();
   if(!snapshot.logs.length) replaceContent(logs,`<div class="empty">${icon('plug')}暂无隧道记录</div>`);
   else reconcileRows(logs,snapshot.logs.map(l=>{
@@ -248,7 +238,7 @@ function renderUpdates(){
  $('download-update').disabled=active;
  $('download-update').textContent=u.phase==='ready'?'立即更新':'下载并更新';
  if(u.phase==='downloading'){$('download-update').hidden=false;$('download-update').textContent='正在下载';}
- $('update-source').value=u.source || snapshot.config.updateSource || 'gitcode';
+ $('update-source').value=u.source || snapshot.config.updateSource || 'mirror';
  $('update-source').disabled=active || u.phase==='ready';
  const release=detected?`${u.source}:${detected}`:'';
  $('update-notes').hidden=!release;
@@ -271,9 +261,10 @@ $('check-update').onclick=()=>task($('check-update'),async()=>{await call('check
 $('download-update').onclick=()=>task($('download-update'),async()=>{if(dirty || keyDirty || refreshIntervalDirty){toast('请先保存未完成的修改',true);return;}await call(snapshot.update?.phase==='ready'?'installUpdate':'downloadUpdate');});
 function receiveRecords(data){
   if(!snapshot)return;
-  snapshot.records=data.records;snapshot.logs=data.logs;
+  if(data.incremental){const merged=new Map(snapshot.records.map(r=>[r.id,r]));for(const row of data.records)merged.set(row.id,row);snapshot.records=[...merged.values()].sort((a,b)=>b.sequence-a.sequence).slice(0,data.limit);}else snapshot.records=data.records;
+  snapshot.logs=data.logs;
   if(currentPage==='records')renderRecords();
 }
-initManagement();
+initManagement();initRecordsUI();
 if (window.bridge) { window.bridge.onUpdate(render);window.bridge.onRecords(receiveRecords); call('snapshot').then(render).catch(() => {}); }
 else { $('status-message').textContent = '请使用桌面应用启动'; }

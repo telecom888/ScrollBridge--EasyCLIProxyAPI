@@ -21,6 +21,7 @@ import (
 type flight struct {
 	cancel       context.CancelFunc
 	keyID, model string
+	requestIP    string
 	version      int64
 	session      bool
 }
@@ -81,7 +82,7 @@ func (g *gateway) apply(s *snapshot) error {
 	// Access/resource changes cancel old flights. Price-only updates preserve
 	// in-flight quotes and must not interrupt an otherwise healthy generation.
 	for f := range g.active {
-		if old.accessSignature != s.accessSignature {
+		if old.accessSignature != s.accessSignature || s.blockedIPs[f.requestIP] {
 			f.cancel()
 		}
 	}
@@ -293,6 +294,16 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	g.requests.Add(1)
 	start := time.Now()
 	s := g.current.Load()
+	ip := clientIP(r)
+	if s.cfg.RecordRequestIP && ip != "" {
+		record["requestIP"] = ip
+	}
+	if s.blockedIPs[ip] {
+		g.rejected.Add(1)
+		record["reason"] = "IP 已屏蔽"
+		problem(w, 403, "IP blocked")
+		return
+	}
 	k := s.auth(token(r))
 	if k == nil {
 		g.rejected.Add(1)
@@ -324,7 +335,7 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), time.Duration(s.cfg.Limits.RequestSeconds)*time.Second)
 	defer cancel()
-	f := &flight{cancel: cancel, keyID: k.ID, version: s.cfg.Version}
+	f := &flight{cancel: cancel, keyID: k.ID, version: s.cfg.Version, requestIP: ip}
 	if !g.acquire(k, s, f) {
 		g.rejected.Add(1)
 		w.Header().Set("Retry-After", "1")

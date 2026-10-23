@@ -35,7 +35,7 @@ func (g *gateway) serveWebSocket(w http.ResponseWriter, r *http.Request, s *snap
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), time.Duration(s.cfg.Limits.RequestSeconds)*time.Second)
 	defer cancel()
-	f := &flight{cancel: cancel, keyID: k.ID, version: s.cfg.Version, session: true}
+	f := &flight{cancel: cancel, keyID: k.ID, version: s.cfg.Version, session: true, requestIP: clientIP(r)}
 	if !g.acquire(k, s, f) {
 		problem(w, 429, "connection limit")
 		return
@@ -157,6 +157,11 @@ func (g *gateway) serveWebSocket(w http.ResponseWriter, r *http.Request, s *snap
 			}
 		}
 		if g.record != nil {
+			if g.current.Load().cfg.RecordRequestIP {
+				if ip := clientIP(r); ip != "" {
+					record["requestIP"] = ip
+				}
+			}
 			g.record(record)
 		}
 	}
@@ -276,6 +281,10 @@ func (g *gateway) serveWebSocket(w http.ResponseWriter, r *http.Request, s *snap
 			continue
 		}
 		policy := g.current.Load()
+		if policy.blockedIPs[clientIP(r)] {
+			cancel()
+			return
+		}
 		if ctx.Err() != nil || policy.accessSignature != s.accessSignature {
 			release()
 			return
@@ -335,7 +344,7 @@ func (g *gateway) serveWebSocket(w http.ResponseWriter, r *http.Request, s *snap
 				sendError(code, "Invalid or unavailable model")
 				continue
 			}
-			turnFlight := &flight{cancel: cancel, keyID: k.ID, model: requested, version: policy.cfg.Version}
+			turnFlight := &flight{cancel: cancel, keyID: k.ID, model: requested, version: policy.cfg.Version, requestIP: clientIP(r)}
 			if !g.acquire(k, policy, turnFlight) {
 				mu.Unlock()
 				release()
