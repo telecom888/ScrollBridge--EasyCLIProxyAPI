@@ -9,7 +9,7 @@ const root=path.resolve(__dirname,'..');
  const env={...process.env,SCROLLBRIDGE_TEST_DATA:profile,SCROLLBRIDGE_GATEWAY_ENGINE:'go'};delete env.ELECTRON_RUN_AS_NODE;
  let app;
  try{
-  const launch=()=>electron.launch({executablePath:require('electron'),args:[scratch],env});app=await launch();let page=await app.firstWindow();const errors=[];page.on('pageerror',e=>errors.push(e.message));await page.waitForFunction(()=>!!snapshot);
+  const launch=()=>electron.launch({executablePath:require('electron'),args:[scratch],env});app=await launch();let page=await app.firstWindow();const errors=[];page.on('pageerror',e=>errors.push(e.message));await page.waitForFunction(()=>typeof snapshot!=="undefined"&&!!snapshot);
   await page.evaluate(async values=>{render(await call('save',{config:{upstream:values.upstream,port:values.port,hostname:'fixture.invalid',recordRequestIP:true},tunnelToken:'disposable-fixture-token'}));render(await call('start'));},{upstream:'http://127.0.0.1:'+up.address().port,port});
   const send=async(ip='2001:db8::1')=>{const r=await fetch(`http://127.0.0.1:${port}/robots.txt`,{headers:{'CF-Connecting-IP':ip}});await r.text();return r.status;};
   assert.equal(await send(),401);await page.waitForFunction(()=>snapshot.records.some(r=>r.requestIP==='2001:db8::1'));
@@ -37,7 +37,7 @@ const root=path.resolve(__dirname,'..');
   await page.selectOption('#record-limit','custom');await page.fill('#record-limit-custom','100');await page.locator('#record-limit-form button').click();await page.waitForFunction(()=>!pending&&snapshot.config.requestRecordLimit===100);assert.equal(await page.evaluate(()=>snapshot.records.length),100);
   await page.evaluate(async()=>{render(await call('save',{config:{recordRequestIP:true}}));});
   await page.click('[data-page=settings]');await page.waitForTimeout(250);await page.locator('#page-settings .panel').filter({has:page.getByRole('heading',{name:'连接',exact:true})}).screenshot({path:path.join(scratch,'settings-light.png')});await page.click('[data-page=records]');await page.waitForTimeout(250);await page.screenshot({path:path.join(scratch,'records-light.png')});await page.click('#theme-toggle');await page.waitForFunction(()=>!pending);await page.waitForTimeout(250);await page.screenshot({path:path.join(scratch,'records-dark.png')});
-  assert.deepEqual(errors,[]);await app.close();app=await launch();page=await app.firstWindow();await page.waitForFunction(()=>!!snapshot);assert.equal(await page.evaluate(()=>snapshot.records.length),0);assert.equal(await page.evaluate(()=>snapshot.config.requestRecordLimit),100);assert.equal(await page.evaluate(()=>snapshot.config.updateSource),'mirror');
+  assert.deepEqual(errors,[]);await app.close();app=await launch();page=await app.firstWindow();await page.waitForFunction(()=>typeof snapshot!=="undefined"&&!!snapshot);assert.equal(await page.evaluate(()=>snapshot.records.length),0);assert.equal(await page.evaluate(()=>snapshot.config.requestRecordLimit),100);assert.equal(await page.evaluate(()=>snapshot.config.updateSource),'mirror');
   console.log('Always-record IP, display toggle, blacklist, pagination, export, retention and restart passed:',scratch);
  }finally{if(app)await app.close();up.closeAllConnections();await new Promise(r=>up.close(r));}
 })().catch(e=>{console.error(e);process.exitCode=1});
