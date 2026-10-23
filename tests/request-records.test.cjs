@@ -1,6 +1,14 @@
 const {test}=require('node:test'),assert=require('node:assert/strict');
 const {RequestRecords,normalizeIP,requestIP,exportRecords}=require('../lib/request-records.cjs');
 const {validateConfig}=require('../lib/config.cjs');
+const {toGoConfig}=require('../lib/go-gateway.cjs');
+test('IP display preference stays in the desktop and hiding a snapshot preserves stored IPs',()=>{
+ const config=validateConfig({}),secrets={keyValues:{},upstreamKey:''};
+ assert.deepEqual(toGoConfig({...config,recordRequestIP:false},secrets),toGoConfig({...config,recordRequestIP:true},secrets));
+ const records=new RequestRecords();records.add({status:401,requestIP:'2001:db8::99'});
+ assert.equal(Object.hasOwn(records.all(false)[0],'requestIP'),false);
+ assert.equal(records.all(true)[0].requestIP,'2001:db8::99');
+});
 test('IP settings are strict, normalize aliases and migrate only the removed update source',()=>{
  const defaults=validateConfig({});assert.equal(defaults.recordRequestIP,false);assert.equal(defaults.requestRecordLimit,200);assert.equal(defaults.updateSource,'mirror');
  assert.equal(validateConfig({updateSource:'gitcode'}).updateSource,'mirror');assert.equal(validateConfig({updateSource:'github'}).updateSource,'github');

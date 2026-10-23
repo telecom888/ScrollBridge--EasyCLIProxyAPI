@@ -17,8 +17,14 @@ const root=path.resolve(__dirname,'..');
   await page.locator('[data-request-ip]').first().click({button:'right'});await page.click('#block-request-ip');await page.waitForFunction(()=>snapshot.config.ipBlacklist.includes('2001:db8::1'));assert.equal(await send(),403);await page.waitForFunction(()=>snapshot.records.some(r=>r.reason==='IP 已屏蔽'));
   await page.click('[data-page=settings]');await page.click('#recordRequestIP');await page.waitForFunction(()=>!pending&&!snapshot.config.recordRequestIP);assert.equal(await send(),403);
   await page.click('#manage-blacklist');await page.locator('[data-remove-ip]').click();await page.waitForFunction(()=>!pending&&snapshot.config.ipBlacklist.length===0);await page.click('#close-blacklist');assert.equal(await send(),401);
+  assert.equal(await send('2001:db8::99'),401);
+  // A hidden column must not discard IPs: snapshots hide them while the main
+  // process keeps the original rows for the next display toggle.
+  assert.ok(await page.evaluate(()=>snapshot.records.every(r=>!Object.hasOwn(r,'requestIP'))));
   await page.click('#recordRequestIP');await page.waitForFunction(()=>!pending&&snapshot.config.recordRequestIP);
+  await page.waitForFunction(()=>snapshot.records.some(r=>r.requestIP==='2001:db8::99'&&r.status===401));
   await page.click('[data-page=records]');await page.selectOption('#record-limit','1000');await page.waitForFunction(()=>snapshot.config.requestRecordLimit===1000&&!pending);
+  assert.ok((await page.locator('#requests-table').innerText()).includes('2001:db8::99'));
   await Promise.all(Array.from({length:205},()=>send('192.0.2.2')));await page.waitForFunction(()=>snapshot.records.length>=209);assert.equal(await page.locator('#requests-table tbody tr').count(),100);await page.click('#record-next');assert.equal(await page.locator('#requests-table tbody tr').count(),100);
   await page.click('#export-records');await page.locator('#export-records-form button[type=submit]').click();await page.waitForFunction(()=>!pending);const exported=await app.evaluate(()=>global.exports.at(-1));const csv=fs.readFileSync(exported,'utf8');assert.ok(csv.includes('192.0.2.2'));assert.ok(csv.split('\r\n').length>200);
   const fixture=await page.evaluate(()=>({recordCount:snapshot.records.length,keys:snapshot.keys}));
@@ -32,6 +38,6 @@ const root=path.resolve(__dirname,'..');
   await page.evaluate(async()=>{render(await call('save',{config:{recordRequestIP:true}}));});
   await page.click('[data-page=settings]');await page.waitForTimeout(250);await page.locator('#page-settings .panel').filter({has:page.getByRole('heading',{name:'连接',exact:true})}).screenshot({path:path.join(scratch,'settings-light.png')});await page.click('[data-page=records]');await page.waitForTimeout(250);await page.screenshot({path:path.join(scratch,'records-light.png')});await page.click('#theme-toggle');await page.waitForFunction(()=>!pending);await page.waitForTimeout(250);await page.screenshot({path:path.join(scratch,'records-dark.png')});
   assert.deepEqual(errors,[]);await app.close();app=await launch();page=await app.firstWindow();await page.waitForFunction(()=>!!snapshot);assert.equal(await page.evaluate(()=>snapshot.records.length),0);assert.equal(await page.evaluate(()=>snapshot.config.requestRecordLimit),100);assert.equal(await page.evaluate(()=>snapshot.config.updateSource),'mirror');
-  console.log('Request IP, blacklist, live opt-out, pagination, export, retention and restart passed:',scratch);
+  console.log('Always-record IP, display toggle, blacklist, pagination, export, retention and restart passed:',scratch);
  }finally{if(app)await app.close();up.closeAllConnections();await new Promise(r=>up.close(r));}
 })().catch(e=>{console.error(e);process.exitCode=1});

@@ -17,18 +17,17 @@ import (
 )
 
 type Config struct {
-	Version         int64      `json:"version"`
-	Listen          string     `json:"listen"`
-	Limits          Limits     `json:"limits"`
-	Images          bool       `json:"images"`
-	Speech          bool       `json:"speech"`
-	RecordRequestIP bool       `json:"recordRequestIP"`
-	IPBlacklist     []string   `json:"ipBlacklist"`
-	GeminiImages    bool       `json:"geminiImageCompatibility"`
-	Billing         Billing    `json:"billing"`
-	Keys            []Key      `json:"keys"`
-	Models          []Model    `json:"models"`
-	Upstreams       []Upstream `json:"upstreams"`
+	Version      int64      `json:"version"`
+	Listen       string     `json:"listen"`
+	Limits       Limits     `json:"limits"`
+	Images       bool       `json:"images"`
+	Speech       bool       `json:"speech"`
+	IPBlacklist  []string   `json:"ipBlacklist"`
+	GeminiImages bool       `json:"geminiImageCompatibility"`
+	Billing      Billing    `json:"billing"`
+	Keys         []Key      `json:"keys"`
+	Models       []Model    `json:"models"`
+	Upstreams    []Upstream `json:"upstreams"`
 }
 type Limits struct {
 	Concurrent     int   `json:"concurrent"`
@@ -274,7 +273,6 @@ func compile(c Config) (*snapshot, error) {
 	}
 	access := s.cfg
 	access.Version = 0
-	access.RecordRequestIP = false
 	access.IPBlacklist = nil
 	access.Billing = Billing{}
 	access.Models = append([]Model(nil), s.cfg.Models...)

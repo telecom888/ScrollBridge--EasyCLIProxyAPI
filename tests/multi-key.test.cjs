@@ -131,11 +131,13 @@ test('WebSocket aliases, nested conflicts, inheritance and live revocation',asyn
   const f=await fixture(t);const wss=new WebSocketServer({server:f.upstream});const upstreamBodies=[];
   wss.on('connection',ws=>ws.on('message',bytes=>{const body=JSON.parse(bytes);upstreamBodies.push(body);ws.send(JSON.stringify({type:'response.created',response:{id:`r${upstreamBodies.length}`,model:body.model}}));}));
   t.after(()=>{for(const ws of wss.clients)ws.terminate();wss.close();});
-  const ws=new WebSocket(f.base.replace('http:','ws:')+'/v1/responses',{headers:f.auth(f.limited)});await once(ws,'open');
+  const ws=new WebSocket(f.base.replace('http:','ws:')+'/v1/responses',{headers:{...f.auth(f.limited),'CF-Connecting-IP':'2001:db8::88'}});await once(ws,'open');
   ws.send('{"type":"response.create","model":"chat-fast"}');assert.equal(JSON.parse((await once(ws,'message'))[0]).response.model,'chat-fast');assert.equal(upstreamBodies[0].model,'gemini-real');
   ws.send('{"type":"response.create","previous_response_id":"r1"}');assert.equal(JSON.parse((await once(ws,'message'))[0]).response.model,'chat-fast');assert.equal(upstreamBodies[1].model,'gemini-real');
   ws.send('{"type":"response.create","model":"chat-fast","response":{"model":"assistant"}}');assert.equal(JSON.parse((await once(ws,'message'))[0]).status,403);assert.equal(upstreamBodies.length,2);
   const closed=once(ws,'close');await f.rotate(f.limited);assert.equal((await closed)[0],1008);
+  for(let i=0;i<100&&!f.records.some(r=>r.method==='WS');i++)await new Promise(r=>setTimeout(r,10));
+  assert.ok(f.records.some(r=>r.method==='WS'&&r.requestIP==='2001:db8::88'));
 });
 test('a key revoked while uploading cannot start an upstream request',async t=>{
   const f=await fixture(t),body='{"model":"chat-fast"}';

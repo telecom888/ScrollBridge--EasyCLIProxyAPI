@@ -295,7 +295,7 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
 	s := g.current.Load()
 	ip := clientIP(r)
-	if s.cfg.RecordRequestIP && ip != "" {
+	if ip != "" {
 		record["requestIP"] = ip
 	}
 	if s.blockedIPs[ip] {

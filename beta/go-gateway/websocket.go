@@ -157,10 +157,8 @@ func (g *gateway) serveWebSocket(w http.ResponseWriter, r *http.Request, s *snap
 			}
 		}
 		if g.record != nil {
-			if g.current.Load().cfg.RecordRequestIP {
-				if ip := clientIP(r); ip != "" {
-					record["requestIP"] = ip
-				}
+			if ip := clientIP(r); ip != "" {
+				record["requestIP"] = ip
 			}
 			g.record(record)
 		}

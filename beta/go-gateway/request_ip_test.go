@@ -26,12 +26,11 @@ func TestClientIPTrustAndNormalization(t *testing.T) {
 		}
 	}
 }
-func TestIPBlacklistPrecedesAuthAndDoesNotDependOnLogging(t *testing.T) {
+func TestRequestIPAlwaysRecordedBeforeAuthAndBlacklist(t *testing.T) {
 	var calls atomic.Int64
 	g, _, _ := fixture(t, func(w http.ResponseWriter, r *http.Request) { calls.Add(1); w.Write([]byte(`{"data":[]}`)) })
 	c := g.current.Load().cfg
 	c.Version++
-	c.RecordRequestIP = false
 	c.IPBlacklist = []string{"::ffff:192.0.2.1", "2001:0db8::1"}
 	s, err := compile(c)
 	if err != nil {
@@ -54,7 +53,8 @@ func TestIPBlacklistPrecedesAuthAndDoesNotDependOnLogging(t *testing.T) {
 		if got := request(ip); got != 403 {
 			t.Fatalf("blocked %s status=%d", ip, got)
 		}
-		if row["requestIP"] != nil || row["reason"] != "IP 已屏蔽" {
+		want, _ := normalizedIP(ip)
+		if row["requestIP"] != want.String() || row["reason"] != "IP 已屏蔽" {
 			t.Fatal(row)
 		}
 	}
@@ -63,7 +63,6 @@ func TestIPBlacklistPrecedesAuthAndDoesNotDependOnLogging(t *testing.T) {
 	}
 	c = s.cfg
 	c.Version++
-	c.RecordRequestIP = true
 	c.IPBlacklist = nil
 	s, err = compile(c)
 	if err != nil {
@@ -83,22 +82,6 @@ func TestIPBlacklistPrecedesAuthAndDoesNotDependOnLogging(t *testing.T) {
 		}
 	}
 }
-func TestIPLoggingSwitchDoesNotInvalidateActivePolicy(t *testing.T) {
-	c := fixtureConfig("http://127.0.0.1:1234")
-	a, err := compile(c)
-	if err != nil {
-		t.Fatal(err)
-	}
-	c.RecordRequestIP = true
-	b, err := compile(c)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if a.accessSignature != b.accessSignature {
-		t.Fatal("logging setting invalidates active connections")
-	}
-}
-
 func TestIPBlacklistUpdateCancelsOnlyMatchingFlights(t *testing.T) {
 	g, _, _ := fixture(t, func(w http.ResponseWriter, r *http.Request) {})
 	blocked, other := false, false
