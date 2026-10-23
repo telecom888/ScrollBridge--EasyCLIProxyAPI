@@ -1,4 +1,4 @@
-const {execFileSync}=require('node:child_process');const fs=require('node:fs');const path=require('node:path');const crypto=require('node:crypto');
+const {execFileSync}=require('node:child_process');const fs=require('node:fs');const path=require('node:path');
 const root=path.resolve(__dirname,'..'),mode=process.argv[2]||'go';if(!['node','go','both','core'].includes(mode))throw Error('Unknown desktop build');
 // dist runs test:go first, which builds and exercises this exact core. Standalone
 // desktop builds retain their usual compilation step.
@@ -30,13 +30,11 @@ const builder=require('electron-builder');
   if(engine==='go')config.files.push('!lib/gateway.cjs','!lib/gemini-images.cjs','!lib/model-response.cjs','!node_modules/busboy/**/*','!node_modules/streamsearch/**/*','!node_modules/ws/**/*');
   const configFile=buildDir+'.json';fs.writeFileSync(configFile,JSON.stringify(config,null,2));
   // Publishing is owned by the release workflow after all packages and the
-  // checksum manifest exist. Never let a CI tag enable builder's publisher.
+  // signed update manifest exist. Never let a CI tag enable builder's publisher.
   await builder.build({projectDir:root,targets:builder.Platform.WINDOWS.createTarget(['portable','nsis','zip'],builder.Arch.x64),config:configFile,publish:'never'});
   for(const name of [`ScrollBridge-${version}-win-x64.exe`,`ScrollBridge-Setup-${version}-win-x64.exe`,`ScrollBridge-${version}-win-x64.zip`])fs.copyFileSync(path.join(buildDir,name),path.join(root,'release',name));
  }
  const manifestPath=path.join(root,'.test-output','desktop-builds.json');let previous={};try{previous=JSON.parse(fs.readFileSync(manifestPath,'utf8'))}catch{};fs.writeFileSync(manifestPath,JSON.stringify({...previous,...builds},null,2));
  const version=require('../package.json').version;
  if(mode!=='node')require('./release-metadata.cjs').writeUpdateMetadata(path.join(root,'release'),version);
- const names=[version,version+'-node'].flatMap(v=>[`ScrollBridge-${v}-win-x64.exe`,`ScrollBridge-Setup-${v}-win-x64.exe`,`ScrollBridge-${v}-win-x64.zip`]).filter(n=>fs.existsSync(path.join(root,'release',n)));
- fs.writeFileSync(path.join(root,'release',`SHA256SUMS-${version}.txt`),names.map(n=>crypto.createHash('sha256').update(fs.readFileSync(path.join(root,'release',n))).digest('hex')+'  '+n).join('\n')+'\n');
 })().catch(e=>{console.error(e);process.exit(1)});

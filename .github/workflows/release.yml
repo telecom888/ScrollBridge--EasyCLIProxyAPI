@@ -64,5 +64,5 @@ jobs:
             gh release create $env:RELEASE_TAG --verify-tag --notes-file "docs/$version.md"
             if ($LASTEXITCODE -ne 0) { throw 'Release creation failed' }
           }
-          gh release upload $env:RELEASE_TAG "release/ScrollBridge-$version-win-x64.zip" "release/ScrollBridge-Setup-$version-win-x64.exe" "release/ScrollBridge-$version-win-x64.exe" "release/SHA256SUMS-$version.txt" "release/scrollbridge-update.json" --clobber
+          gh release upload $env:RELEASE_TAG "release/ScrollBridge-$version-win-x64.zip" "release/ScrollBridge-Setup-$version-win-x64.exe" "release/ScrollBridge-$version-win-x64.exe" "release/scrollbridge-update.json" --clobber
           if ($LASTEXITCODE -ne 0) { throw 'Release upload failed' }

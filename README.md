@@ -140,7 +140,7 @@ npm start
 npm run dist
 ```
 
-`vendor` 下载 cloudflared 2026.10.1 并比对固定官方 SHA-256。`dist` 基于同一份 Go 核心及桌面文件生成三种 Windows x64 发行包：免安装 ZIP 文件夹版、NSIS 安装程序、单 exe 便携版，并生成 SHA256SUMS。`node scripts/logos.cjs` 可从锁定的 GitHub 版本重新下载 SVG 和许可证。`node scripts/smoke.cjs` 验证 Electron UI 和本工作区代理导入；`node scripts/live-proxy.cjs` 对本工作区正在运行的代理发起三次最小流式请求。后两者的原代理路径针对本机，迁移机器时需修改。
+`vendor` 下载 cloudflared 2026.10.1 并比对固定官方 SHA-256。`dist` 基于同一份 Go 核心及桌面文件生成三种 Windows x64 发行包：免安装 ZIP 文件夹版、NSIS 安装程序、单 exe 便携版，并生成签名更新清单。`node scripts/logos.cjs` 可从锁定的 GitHub 版本重新下载 SVG 和许可证。`node scripts/smoke.cjs` 验证 Electron UI 和本工作区代理导入；`node scripts/live-proxy.cjs` 对本工作区正在运行的代理发起三次最小流式请求。后两者的原代理路径针对本机，迁移机器时需修改。
 
 ZIP 解压后运行文件夹内的 `卷桥.exe`，需保留同目录的其他运行文件；安装版提供安装目录选择，仅安装到当前账户，默认不在安装结束后自动运行；单 exe 版每次运行仍会解压临时文件。三种版本均在主程序旁保存 `scrollbridge.json`，ZIP 和安装版可以移入原配置以保留已有密钥，发行包不包含个人配置。安装版覆盖安装及卸载后保留该配置文件，不删除其他正在运行的便携副本。安装目录应选择当前账户可写的位置。
 
