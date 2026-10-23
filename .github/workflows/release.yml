@@ -51,6 +51,8 @@ jobs:
         run: node scripts/update-window-smoke.cjs
       - name: Verify request IP, body preview, blacklist, retention and export
         run: node scripts/request-records-smoke.cjs
+      - name: Verify tunnel recovery after network changes
+        run: node scripts/tunnel-recovery-smoke.cjs
       - name: Upload three packages and update metadata
         shell: pwsh
         env:
