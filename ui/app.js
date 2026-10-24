@@ -187,7 +187,7 @@ function renderModelCatalog() {
     if(!!row.querySelector('[data-delete-model]')!==!!next.querySelector('[data-delete-model]'))row.querySelector('.catalog-actions').replaceWith(next.querySelector('.catalog-actions'));
     const summary=row.querySelector('.alias-summary');if(summary)summary.textContent=next.querySelector('.alias-summary').textContent;
   });
-  $('catalog-list').querySelectorAll('[data-delete-model]').forEach(button=>button.onclick=()=>{deleteModelId=button.dataset.deleteModel;const rule=snapshot.config.modelRules.find(row=>row.id===deleteModelId);$('model-delete-message').textContent=`将删除 ${rule.actual} 的别名和密钥权限设置。`;$('model-delete-dialog').showModal();});
+  $('catalog-list').querySelectorAll('[data-delete-model]').forEach(button=>button.onclick=()=>{deleteModelId=button.dataset.deleteModel;const rule=snapshot.config.modelRules.find(row=>row.id===deleteModelId);$('model-delete-message').textContent=`将删除 ${rule.actual} 的别名和密钥权限设置。`;openDialog($('model-delete-dialog'));});
   $('catalog-list').querySelectorAll('[data-edit-alias]').forEach(button=>button.onclick=()=>openAliasEditor(button.dataset.editAlias));
   $('catalog-list').querySelectorAll('[data-modelid]').forEach(button => button.onclick = async () => {
     await task(button, async () => { render(await call('setModelAccess', { model:button.dataset.modelid, enabled:button.getAttribute('aria-checked') !== 'true' })); toast('模型访问设置已保存'); });
@@ -195,8 +195,8 @@ function renderModelCatalog() {
   });
 }
 let deleteModelId;
-$('cancel-model-delete').onclick=()=>$('model-delete-dialog').close();
-$('confirm-model-delete').onclick=()=>task($('confirm-model-delete'),async()=>{render(await call('deleteModel',{id:deleteModelId}));$('model-delete-dialog').close();toast('模型已删除');});
+$('cancel-model-delete').onclick=()=>closeDialog($('model-delete-dialog'));
+$('confirm-model-delete').onclick=()=>task($('confirm-model-delete'),async()=>{render(await call('deleteModel',{id:deleteModelId}));closeDialog($('model-delete-dialog'));toast('模型已删除');});
 let refreshIntervalDirty=false;
 function renderModelRefreshSettings(){
   $('refreshModelsOnStartup').checked=snapshot.config.refreshModelsOnStartup;

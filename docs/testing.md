@@ -23,6 +23,7 @@
 | `desktop-gateway-smoke.cjs go` | 桌面、真实 Go 子进程、日志增量刷新、生命周期 |
 | `management-api-smoke.cjs` | 本机管理 API 与 UI/网关状态同步 |
 | `request-records-smoke.cjs` | IP、正文显示、黑名单、保留数量、分页、导出和重启清空 |
+| `overlays-smoke.cjs` | 弹窗进退场、快速重开、焦点恢复、内容高度及菜单展开 |
 | `tunnel-recovery-smoke.cjs` | 真实隧道替身进程、连续网络切换、网关保留、停止取消重试 |
 | `model-refresh-smoke.cjs` | 模型刷新、下架、恢复、删除及持久化 |
 | `multi-key-smoke.cjs` | 密钥、权限、别名与重启恢复 |

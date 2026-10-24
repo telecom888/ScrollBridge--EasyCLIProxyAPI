@@ -175,13 +175,13 @@ const actions = {
   clearLogs: () => { requestRecords.clear();logs=[];publish();return true; },
   setRecordLimit: async payload=>{
     const limit=Number(payload?.limit);if(!Number.isInteger(limit)||limit<100||limit>10000)throw Error('记录数量须为 100–10000');
-    if(requestRecords.size>limit){const answer=await dialog.showMessageBox(window,{type:'question',message:'减少保留数量？',detail:'将删除最旧的 '+(requestRecords.size-limit)+' 条请求记录。',buttons:['取消','确认'],defaultId:0,cancelId:0});if(answer.response!==1)return view();}
+    if(requestRecords.size>limit&&payload.confirmed!==true){const answer=await dialog.showMessageBox(window,{type:'question',message:'减少保留数量？',detail:'将删除最旧的 '+(requestRecords.size-limit)+' 条请求记录。',buttons:['取消','确认'],defaultId:0,cancelId:0});if(answer.response!==1)return view();}
     return save({config:{requestRecordLimit:limit}});
   },
   blockIP: async payload=>{
     const ip=normalizeIP(payload?.ip);if(config.ipBlacklist.includes(ip))return view();
-    const answer=await dialog.showMessageBox(window,{type:'question',message:'屏蔽 '+ip+'？',detail:'该 IP 的后续请求将被拒绝，可在设置中移除。',buttons:['取消','加入黑名单'],defaultId:0,cancelId:0});
-    return answer.response===1?save({config:{ipBlacklist:[...config.ipBlacklist,ip]}}):view();
+    if(payload.confirmed!==true){const answer=await dialog.showMessageBox(window,{type:'question',message:'屏蔽 '+ip+'？',detail:'该 IP 的后续请求将被拒绝，可在设置中移除。',buttons:['取消','加入黑名单'],defaultId:0,cancelId:0});if(answer.response!==1)return view();}
+    return save({config:{ipBlacklist:[...config.ipBlacklist,ip]}});
   },
   copyRequestIP: payload=>{clipboard.writeText(normalizeIP(payload?.ip));return true;},
   getRequestBody: payload=>{

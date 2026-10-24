@@ -252,3 +252,13 @@ html[data-theme=dark] .setting-row input[type=checkbox][role=switch]::before,htm
 @media(max-width:800px){.record-actions{gap:8px}.record-pagination{justify-content:center;flex-wrap:wrap}.blacklist-add{align-items:stretch}}
 
 #request-body-dialog{width:min(860px,92vw);max-height:88vh;overflow:auto}#request-body-content{background:var(--code);border:1px solid var(--line);border-radius:8px;padding:16px;font:14px/1.6 ui-monospace,Consolas,monospace;white-space:pre-wrap;overflow-wrap:anywhere;max-height:55vh;overflow:auto;user-select:text}#request-body-meta{margin:12px 0}#requests-table{overflow-x:auto}[data-view-body]{white-space:nowrap}
+
+@property --overlay-shade{syntax:'<number>';inherits:true;initial-value:1}
+dialog{max-width:calc(100vw - 40px);max-height:calc(100vh - 48px);transform-origin:center;box-shadow:0 24px 80px #00000026,0 4px 18px #0000000d;scrollbar-gutter:stable}
+dialog::backdrop{background:rgb(0 0 0 / calc(.28 * var(--overlay-shade)))}
+.overlay-content{display:flow-root}
+dialog[data-overlay-phase=closing]{pointer-events:none}
+[popover]{opacity:0;transform:translateY(-4px) scale(.97);transform-origin:top right;transition:opacity 120ms ease-in,transform 120ms ease-in,display 120ms allow-discrete,overlay 120ms allow-discrete}
+[popover]:popover-open{opacity:1;transform:translateY(0) scale(1);transition-duration:180ms;transition-timing-function:cubic-bezier(.16,1.2,.3,1)}
+[popover]:not(:popover-open){pointer-events:none}
+@starting-style{[popover]:popover-open{opacity:0;transform:translateY(-4px) scale(.97)}}

@@ -86,14 +86,14 @@ function renderKeyLimitFields() {
 }
 function markKeyDirty(){keyDirty=true;updateKeyEditorControls();}
 function requestKeyTransition(action) {
-  if(keyDirty){draftTransition=action;$('key-draft-dialog').showModal();}else action();
+  if(keyDirty){draftTransition=action;openDialog($('key-draft-dialog'));}else action();
 }
 function showKeyMenu(id,trigger) {
   if(pending || keySaving)return;
   const menu=$('key-menu');menuTrigger?.setAttribute('aria-expanded','false');if(menu.matches(':popover-open'))menu.hidePopover();
   menuKeyId=id;menuTrigger=trigger;trigger.setAttribute('aria-expanded','true');
   const rect=trigger.getBoundingClientRect();menu.style.left=`${Math.max(8,Math.min(rect.right-184,innerWidth-192))}px`;menu.style.top=`${rect.bottom+108>innerHeight?Math.max(8,rect.top-108):rect.bottom+6}px`;
-  menu.showPopover();menu.querySelector('button').focus();
+  menu.showPopover();positionPopoverOrigin(menu,rect);menu.querySelector('button').focus();
 }
 function renderPermissionChoices() {
   const query=$('permission-search').value.trim().toLowerCase(),all=$('key-all').checked;
@@ -157,13 +157,13 @@ function addAliasRow(alias={id:'',name:''}) {
 }
 function openAliasEditor(id) {
   const rule=snapshot.config.modelRules.find(row=>row.id===id);editingRuleId=id;
-  $('alias-actual').textContent=rule.actual;$('alias-keep').checked=rule.keepOriginal;$('alias-rows').replaceChildren();rule.aliases.forEach(addAliasRow);$('alias-dialog').showModal();
+  $('alias-actual').textContent=rule.actual;$('alias-keep').checked=rule.keepOriginal;$('alias-rows').replaceChildren();rule.aliases.forEach(addAliasRow);openDialog($('alias-dialog'));
 }
 function confirmKey(action,id) {
   const key=snapshot.keys.find(row=>row.id===id);pendingConfirmation={action,id};
   $('key-confirm-title').textContent=action==='deleteKey'?'删除密钥？':'重置密钥？';
   $('key-confirm-message').textContent=action==='deleteKey'?`删除“${key.name}”后，使用它的客户端将无法访问。`:`“${key.name}”的旧密钥会立即失效，需要更新客户端。`;
-  $('key-confirm-dialog').showModal();
+  openDialog($('key-confirm-dialog'));
 }
 function initManagement() {
   initKeyLayout();
@@ -183,8 +183,8 @@ function initManagement() {
   $('key-search').oninput=()=>{$('key-menu').hidePopover();renderManagement();};
   $('close-key-editor').onclick=()=>requestKeyTransition(()=>{keyEditorVisible=false;keyDirty=false;renderManagement();});
   $('cancel-key-edit').onclick=()=>{populateKeyEditor(keyCreating?snapshot.keys[0]?.id:editingKeyId);renderManagement();};
-  $('keep-key-draft').onclick=()=>{draftTransition=null;$('key-draft-dialog').close();};
-  $('discard-key-draft').onclick=()=>{const action=draftTransition;draftTransition=null;keyDirty=false;$('key-draft-dialog').close();action?.();};
+  $('keep-key-draft').onclick=()=>{draftTransition=null;closeDialog($('key-draft-dialog'));};
+  $('discard-key-draft').onclick=async()=>{const action=draftTransition;draftTransition=null;keyDirty=false;if(await closeDialog($('key-draft-dialog')))action?.();};
   $('key-draft-dialog').addEventListener('cancel',()=>{draftTransition=null;});
   $('key-menu').addEventListener('toggle',event=>{if(event.newState==='closed')menuTrigger?.setAttribute('aria-expanded','false');});
   $('key-menu').onkeydown=event=>{
@@ -218,8 +218,8 @@ function initManagement() {
   $('add-alias').onclick=()=>addAliasRow();
   $('alias-form').onsubmit=event=>{event.preventDefault();task(event.submitter,async()=>{
     const aliases=[...$('alias-rows').children].map(row=>({id:row.dataset.aliasId || undefined,name:row.querySelector('input').value}));
-    render(await call('saveAliases',{id:editingRuleId,keepOriginal:$('alias-keep').checked,aliases}));$('alias-dialog').close();toast('模型 ID 已保存');
+    render(await call('saveAliases',{id:editingRuleId,keepOriginal:$('alias-keep').checked,aliases}));closeDialog($('alias-dialog'));toast('模型 ID 已保存');
   });};
-  $('key-confirm').onclick=()=>task($('key-confirm'),async()=>{const {action,id}=pendingConfirmation;render(await call(action,{id}));$('key-confirm-dialog').close();toast(action==='deleteKey'?'密钥已删除':'密钥已重置');});
-  document.querySelectorAll('[data-close]').forEach(button=>button.onclick=()=>$(button.dataset.close).close());
+  $('key-confirm').onclick=()=>task($('key-confirm'),async()=>{const {action,id}=pendingConfirmation;render(await call(action,{id}));closeDialog($('key-confirm-dialog'));toast(action==='deleteKey'?'密钥已删除':'密钥已重置');});
+  document.querySelectorAll('[data-close]').forEach(button=>button.onclick=()=>closeDialog($(button.dataset.close)));
 }
