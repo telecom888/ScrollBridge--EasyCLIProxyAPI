@@ -14,6 +14,7 @@ const root=path.resolve(__dirname,'..');
   await page.waitForFunction(()=>Number(getComputedStyle($('key-confirm-dialog')).opacity)>0);
   const during=await page.evaluate(()=>{const d=$('key-confirm-dialog'),s=getComputedStyle(d);return{open:d.open,opacity:Number(s.opacity),transform:s.transform,shade:s.getPropertyValue('--overlay-shade'),backdrop:getComputedStyle(d,'::backdrop').backgroundColor};});
   assert.equal(during.open,true);assert.ok(during.opacity>0&&during.opacity<=1);assert.notEqual(during.transform,'none');
+  assert.equal(await page.evaluate(()=>new DOMMatrix(getComputedStyle($('key-confirm-dialog')).transform).a),1);
   await page.waitForFunction(()=>$('key-confirm-dialog').dataset.overlayPhase==='open');
   await page.click('[data-close=key-confirm-dialog]');assert.equal(await page.evaluate(()=>$('key-confirm-dialog').open),true);
   await page.waitForFunction(()=>!$('key-confirm-dialog').open);assert.equal(await page.evaluate(()=>document.activeElement.id),'overlay-trigger');

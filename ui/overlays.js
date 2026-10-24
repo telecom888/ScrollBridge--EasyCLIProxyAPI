@@ -37,8 +37,8 @@ function openDialog(dialog){
  const done=()=>{if(generation!==state.generation)return;state.phase='open';dialog.dataset.overlayPhase='open';dialog.style.setProperty('--overlay-shade','1');cancelOverlay(state);};
  if(motionPreference.matches){done();return;}
  const frames=[
-  {...(from?{opacity:from.opacity,transform:from.transform}:{opacity:0,transform:`translateY(${large?14:8}px) scale(${large?.96:.975})`}),offset:0,easing:'cubic-bezier(.16,1,.3,1)'},
-  {opacity:1,transform:`translateY(0px) scale(${large?1.004:1.002})`,offset:.74,easing:'cubic-bezier(.4,0,.2,1)'},
+  {...(from?{opacity:from.opacity,transform:from.transform}:{opacity:0,transform:`translateY(${large?14:8}px) scale(1)`}),offset:0,easing:'cubic-bezier(.16,1,.3,1)'},
+  {opacity:1,transform:'translateY(0px) scale(1)',offset:.74,easing:'cubic-bezier(.4,0,.2,1)'},
   {opacity:1,transform:'translateY(0px) scale(1)',offset:1}
  ];
  void overlayAnimations(dialog,state,frames,[from?.shade||'0','1'],large?280:190).then(done);
