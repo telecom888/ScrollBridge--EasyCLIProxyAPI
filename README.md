@@ -14,6 +14,8 @@
 | 安装版 | 运行 `ScrollBridge-Setup-版本-win-x64.exe`，安装到当前账户可写的目录 |
 | 单 exe 便携版 | 运行 `ScrollBridge-版本-win-x64.exe`，每次启动会解压临时运行文件 |
 
+当前 Windows 发布包尚未进行代码签名，运行时可能出现“未知发布者”或 SmartScreen 提示。自动更新会通过数字签名和文件校验验证更新包。
+
 1. 保持原代理工具运行，在「连接」填写本地服务地址或从其 `cpa-core/config.yaml` 导入。
 2. 点击「检测进程」，确认核心进程、端口和模型接口正常。默认本地服务为 `http://127.0.0.1:8317`，卷桥网关为 `127.0.0.1:18443`。
 3. 填写自己的域名和隧道令牌。首次域名默认留空，绑定方式见下文。
@@ -87,7 +89,7 @@ Go 为维护主线；历史 Node 网关保留用于对照回归，`npm run dist:
 
 ## 许可与来源
 
-项目使用 [GNU GPLv3](LICENSE)，未捆绑 CLIProxyAPI 或 EasyCLIProxyAPI 可执行文件。依赖与图标许可见 [第三方声明](THIRD_PARTY_NOTICES.md)。发布包未配置 Windows 可执行文件代码签名；它与更新清单的 Ed25519 签名是两件事。
+项目使用 [GNU GPLv3](LICENSE)，未捆绑 CLIProxyAPI 或 EasyCLIProxyAPI 可执行文件。依赖与图标许可见 [第三方声明](THIRD_PARTY_NOTICES.md)。
 
 - [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI)、[EasyCLIProxyAPI](https://github.com/router-for-me/EasyCLIProxyAPI)
 - [Cloudflare Tunnel](https://developers.cloudflare.com/tunnel/get-started/)
