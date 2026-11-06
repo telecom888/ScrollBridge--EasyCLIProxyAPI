@@ -29,7 +29,7 @@ test('a successful empty catalog closes all models; repeated refresh does not re
 test('local detection returns complete normalized models even when process inspection fails',async()=>{
   const data=Array.from({length:120},(_,i)=>({id:`models/model-${i}`}));
   const result=await localCheck({}, {},{scanner:async()=>{throw Error('unavailable');},fetcher:async()=>Response.json({data})});
-  assert.equal(result.ok,false);assert.equal(result.modelsFetched,true);assert.equal(result.models.length,120);
+  assert.equal(result.ok,true);assert.equal(result.process.available,false);assert.equal(result.modelsFetched,true);assert.equal(result.models.length,120);
   assert.ok(result.models.includes('model-119'));
   const failed=await localCheck({}, {},{scanner:async()=>({}),fetcher:async()=>Response.json({}, {status:401})});
   assert.equal(failed.modelsFetched,false);

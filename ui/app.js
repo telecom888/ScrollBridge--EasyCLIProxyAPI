@@ -154,7 +154,7 @@ function renderDiagnostics() {
     const metadata=[['检测时间',time(data.checkedAt)]];
     if (data.ms!==undefined) metadata.push(['耗时',`${(data.ms/1000).toLocaleString('zh-CN',{maximumFractionDigits:2})} 秒`]);
     if(replaceContent(summary,`<strong class="${data.ok?'diagnostic-ok':'diagnostic-error'}">${data.ok?'检测通过':'检测未通过'}</strong>${descriptionRows(metadata)}`)) reveal(summary);
-    if(replaceContent(steps,data.steps.map(s=>`<div class="diagnostic-step"><span class="${s.ok?'diagnostic-ok':'diagnostic-error'}">${s.ok?'✓':'×'}</span><span>${escapeHTML(s.name)}</span><div>${s.facts?descriptionRows(s.facts):`<p>${escapeHTML(s.detail)}</p>`}</div></div>`).join(''))) [...steps.children].forEach((row,index)=>reveal(row,Math.min(index,5)*24));
+    if(replaceContent(steps,data.steps.map(s=>`<div class="diagnostic-step"><span class="${s.ok===null?'':s.ok?'diagnostic-ok':'diagnostic-error'}">${s.ok===null?'—':s.ok?'✓':'×'}</span><span>${escapeHTML(s.name)}</span><div>${s.facts?descriptionRows(s.facts):`<p>${escapeHTML(s.detail)}</p>`}</div></div>`).join(''))) [...steps.children].forEach((row,index)=>reveal(row,Math.min(index,5)*24));
   }
 }
 function renderRecords() {
