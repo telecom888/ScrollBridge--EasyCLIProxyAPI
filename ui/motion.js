@@ -53,3 +53,31 @@ function reconcileRows(container, html, keyOf, update) {
   });
   [...container.children].forEach(row => { if (!keep.has(row)) row.remove(); });
 }
+
+const recordRowContent=new WeakMap();
+function reconcileRecordRows(container,items,keyOf,htmlFor,{animate=true,variant=''}={}){
+  const existing=new Map([...container.children].map(row=>[row.dataset.rowKey,row]));
+  const keep=new Set();
+  items.forEach((item,index)=>{
+    const key=keyOf(item);
+    let row=existing.get(key);
+    const previous=recordRowContent.get(row);
+    const fresh=!row;
+    if(!previous || previous.item!==item || previous.variant!==variant){
+      const html=htmlFor(item);
+      if(html!==previous?.html){
+        const template=document.createElement('template');
+        template.innerHTML=html;
+        const next=template.content.firstElementChild;
+        next.dataset.rowKey=key;
+        if(row)row.replaceWith(next);
+        row=next;
+      }
+      recordRowContent.set(row,{item,variant,html});
+    }
+    keep.add(row);
+    if(container.children[index]!==row)container.insertBefore(row,container.children[index]||null);
+    if(fresh&&animate)reveal(row,Math.min(index,5)*24);
+  });
+  for(const row of [...container.children])if(!keep.has(row))row.remove();
+}

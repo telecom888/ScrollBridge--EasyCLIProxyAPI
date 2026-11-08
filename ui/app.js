@@ -66,7 +66,7 @@ function render(s) {
   $('geminiImageCompatibility').checked = s.config.geminiImageCompatibility;
   $('speechEnabled').checked = s.config.speechEnabled;
   renderRecordSettings();renderModelRefreshSettings();renderManagement();renderDiagnosticModels();renderUpdates();
-  $('version').textContent = `v${s.version.replace(/-beta(?:\.\d+)?$/,' beta')}`; renderExample(); renderRecords(); renderDiagnostics(); renderModelCatalog();
+  $('version').textContent = `v${s.version.replace(/-beta(?:\.\d+)?$/,' beta')}`; renderExample(); refreshRecordView(s.recordsCatchUp); renderDiagnostics(); renderModelCatalog();
 }
 for (const id of ['upstream','port','hostname','upstreamKey','tunnelToken']) $(id).addEventListener('input', () => { dirty = true; });
 async function saveForm() { const s = await call('save', { config: {upstream:$('upstream').value,port:Number($('port').value),hostname:$('hostname').value}, upstreamKey:$('upstreamKey').value,tunnelToken:$('tunnelToken').value }); dirty = false; $('upstreamKey').value = ''; $('tunnelToken').value = ''; render(s); }
@@ -124,8 +124,6 @@ $('automatic-binding').onsubmit = e => { e.preventDefault(); task(e.submitter, a
 for (const [id, action] of [['cloudflare','openCloudflare'],['guide','openGuide'],['open-data','openData'],['github-project','openRepository']]) $(id).onclick = () => task(null, () => call(action));
 document.querySelectorAll('[data-record-tab]').forEach(el => el.onclick = () => { if(el.classList.contains('active')) return; moveSelection(el.parentElement, el); $('requests-table').hidden = el.dataset.recordTab !== 'requests'; $('record-key-filters').hidden=el.dataset.recordTab !== 'requests'; $('tunnel-logs').hidden = el.dataset.recordTab !== 'tunnel'; reveal(el.dataset.recordTab === 'requests' ? $('requests-table') : $('tunnel-logs')); });
 const recordKeySelection=new Set();
-$('record-filter-mode').onchange=renderRecords;
-$('record-key-single').onchange=renderRecords;
 function filteredRecords() {
   // Retain IDs from recent records so a renamed/deleted key can still be queried.
   const choices=new Map(snapshot.keys.map(key=>[key.id,key.name]));
@@ -136,9 +134,8 @@ function filteredRecords() {
   const mode=$('record-filter-mode').value;
   $('record-single-field').hidden=mode!=='single';$('record-multiple-field').hidden=mode!=='multiple';
   replaceContent($('record-key-choices'),[...choices].map(([id,name])=>`<label><input type="checkbox" value="${escapeHTML(id)}" ${recordKeySelection.has(id)?'checked':''}><span>${escapeHTML(name)}</span></label>`).join('') || '<p class="note">暂无密钥</p>');
-  for(const input of $('record-key-choices').querySelectorAll('input'))input.onchange=()=>{if(input.checked)recordKeySelection.add(input.value);else recordKeySelection.delete(input.value);renderRecords();};
   $('record-selection-summary').textContent=`已选择 ${[...recordKeySelection].filter(id=>choices.has(id)).length} 个密钥`;
-  const records=snapshot.records.filter(row=>mode==='all' || (mode==='single'?!!single.value && row.keyId===single.value:recordKeySelection.has(row.keyId)));
+  const records=mode==='all'?snapshot.records:snapshot.records.filter(row=>mode==='single'?!!single.value && row.keyId===single.value:recordKeySelection.has(row.keyId));
   $('record-filter-count').textContent=`${records.length} 条请求`;
   return records;
 }
@@ -157,14 +154,31 @@ function renderDiagnostics() {
     if(replaceContent(steps,data.steps.map(s=>`<div class="diagnostic-step"><span class="${s.ok===null?'':s.ok?'diagnostic-ok':'diagnostic-error'}">${s.ok===null?'—':s.ok?'✓':'×'}</span><span>${escapeHTML(s.name)}</span><div>${s.facts?descriptionRows(s.facts):`<p>${escapeHTML(s.detail)}</p>`}</div></div>`).join(''))) [...steps.children].forEach((row,index)=>reveal(row,Math.min(index,5)*24));
   }
 }
-function renderRecords() {
-  renderRequestRecords();
+let recordCatchUpFrame=0;
+function refreshRecordView(catchUp=false){
+  if(currentPage!=='records')return;
+  if(catchUp&&!recordCatchUpFrame){
+    recordCatchUpFrame=requestAnimationFrame(()=>{
+      recordCatchUpFrame=requestAnimationFrame(()=>{
+        recordCatchUpFrame=0;
+        if(currentPage==='records')renderRecords(false);
+      });
+    });
+  }else if(!recordCatchUpFrame)renderRecords();
+}
+function renderRecords(animate=true) {
+  if(recordCatchUpFrame)return;
+  if(selectedBodyId&&!snapshot.records.some(row=>row.id===selectedBodyId))closeDialog($('request-body-dialog'));
   const logs=$('tunnel-logs'), occurrences=new Map();
+  $('export-records').hidden=!logs.hidden;
+  if(logs.hidden){renderRequestRecords(animate!==false);return;}
+  $('record-pagination').hidden=true;
+  $('record-note').textContent='仅保留本次运行的最近 100 条隧道记录。';
   if(!snapshot.logs.length) replaceContent(logs,`<div class="empty">${icon('plug')}暂无隧道记录</div>`);
-  else reconcileRows(logs,snapshot.logs.map(l=>{
+  else reconcileRecordRows(logs,snapshot.logs,l=>{
     const signature=JSON.stringify([l.time,l.text]), count=occurrences.get(signature)||0; occurrences.set(signature,count+1);
-    return `<div class="log-line" data-row-key="${escapeHTML(`${signature}:${count}`)}"><time>${time(l.time)}</time><span>${escapeHTML(l.text)}</span></div>`;
-  }).join(''),row=>row.dataset.rowKey);
+    return `${signature}:${count}`;
+  },l=>`<div class="log-line"><time>${time(l.time)}</time><span>${escapeHTML(l.text)}</span></div>`,{animate:animate!==false});
 }
 function canonicalModel(id) { return id.trim().replace(/^models\//i,'').toLowerCase(); }
 function renderModelCatalog() {
@@ -261,9 +275,10 @@ $('check-update').onclick=()=>task($('check-update'),async()=>{await call('check
 $('download-update').onclick=()=>task($('download-update'),async()=>{if(dirty || keyDirty || refreshIntervalDirty){toast('请先保存未完成的修改',true);return;}await call(snapshot.update?.phase==='ready'?'installUpdate':'downloadUpdate');});
 function receiveRecords(data){
   if(!snapshot)return;
-  if(data.incremental){const merged=new Map(snapshot.records.map(r=>[r.id,r]));for(const row of data.records)merged.set(row.id,row);snapshot.records=[...merged.values()].sort((a,b)=>b.sequence-a.sequence).slice(0,data.limit);}else snapshot.records=data.records;
+  if(!data.incremental)snapshot.records=data.records;
+  else if(data.records.length){const merged=new Map(snapshot.records.map(r=>[r.id,r]));for(const row of data.records)merged.set(row.id,row);snapshot.records=[...merged.values()].sort((a,b)=>b.sequence-a.sequence).slice(0,data.limit);}
   snapshot.logs=data.logs;
-  if(currentPage==='records')renderRecords();
+  refreshRecordView(data.catchUp);
 }
 initManagement();initRecordsUI();
 if (window.bridge) { window.bridge.onUpdate(render);window.bridge.onRecords(receiveRecords); call('snapshot').then(render).catch(() => {}); }

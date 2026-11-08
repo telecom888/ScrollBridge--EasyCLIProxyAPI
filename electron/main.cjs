@@ -40,11 +40,25 @@ async function commit(next,nextSecrets=secrets) {
 }
 function findKey(id) {const key=config.accessKeys.find(row=>row.id===id);if(!key)throw new Error('密钥不存在');return key;}
 const recordChanges=new Map();
-function publish() { recordChanges.clear();if (window && !window.isDestroyed()) window.webContents.send('update', view()); }
-let recordPublishTimer;
+let recordPublishTimer, recordsCatchUp=false, stateCatchUp=false;
+function windowVisible(){return window&&!window.isDestroyed()&&window.isVisible()&&!window.isMinimized();}
+function publish() {
+  recordChanges.clear();
+  if(!windowVisible() || recordsCatchUp){recordsCatchUp=true;stateCatchUp=true;return;}
+  window.webContents.send('update', view());
+}
 function publishRecords() {
-  if(recordPublishTimer)return;
-  recordPublishTimer=setTimeout(()=>{recordPublishTimer=null;if(window && !window.isDestroyed() && window.isVisible())window.webContents.send('records',{records:[...recordChanges.values()].sort((a,b)=>b.sequence-a.sequence).map(row=>{const safe={...row};if(!config.recordRequestIP)delete safe.requestIP;if(!config.showRequestBody)delete safe.requestBody;return safe;}),logs,incremental:true,limit:config.requestRecordLimit});recordChanges.clear();},100);
+  if(recordPublishTimer || !windowVisible())return;
+  recordPublishTimer=setTimeout(()=>{
+    recordPublishTimer=null;
+    if(!windowVisible())return;
+    if(recordsCatchUp){
+      recordsCatchUp=false;
+      if(stateCatchUp){stateCatchUp=false;window.webContents.send('update',{...view(),recordsCatchUp:true});}
+      else window.webContents.send('records',{records:requestRecords.all(config.recordRequestIP,config.showRequestBody),logs,catchUp:true});
+    }else window.webContents.send('records',{records:[...recordChanges.values()].sort((a,b)=>b.sequence-a.sequence).map(row=>{const safe={...row};if(!config.recordRequestIP)delete safe.requestIP;if(!config.showRequestBody)delete safe.requestBody;return safe;}),logs,incremental:true,limit:config.requestRecordLimit});
+    recordChanges.clear();
+  },100);
 }
 function state(next, detail = '') { status = next; message = detail; publish(); }
 function log(line) { logs.unshift({ time: new Date().toISOString(), text: line }); if(logs.length>100)logs.length=100;publishRecords(); }
@@ -143,7 +157,7 @@ const actions = {
     state('starting');
     try {
       await fetchModels(config,secrets);
-      gateway = await startGateway(config, secrets, record => { requestRecords.resize(config.requestRecordLimit);const row=requestRecords.add(record);if(window && !window.isDestroyed() && window.isVisible())recordChanges.set(row.id,row);if(recordChanges.size>config.requestRecordLimit)recordChanges.delete(recordChanges.keys().next().value);publishRecords(); }, { executable:app.isPackaged?path.join(process.resourcesPath,'vendor','scrollbridge-gateway.exe'):path.join(app.getAppPath(),'vendor','scrollbridge-gateway.exe'),stateDir:path.join(app.getPath('userData'),'gateway-go'),onExit:()=>{void stop().then(()=>state('error','网关意外退出，请重新连接'));},getConfig:()=>config,getSecrets:()=>secrets });
+      gateway = await startGateway(config, secrets, record => { requestRecords.resize(config.requestRecordLimit);const row=requestRecords.add(record);if(windowVisible()&&!recordsCatchUp)recordChanges.set(row.id,row);if(recordChanges.size>config.requestRecordLimit)recordChanges.delete(recordChanges.keys().next().value);publishRecords(); }, { executable:app.isPackaged?path.join(process.resourcesPath,'vendor','scrollbridge-gateway.exe'):path.join(app.getAppPath(),'vendor','scrollbridge-gateway.exe'),stateDir:path.join(app.getPath('userData'),'gateway-go'),onExit:()=>{void stop().then(()=>state('error','网关意外退出，请重新连接'));},getConfig:()=>config,getSecrets:()=>secrets });
       const executable = app.isPackaged ? path.join(process.resourcesPath, 'vendor', 'cloudflared.exe') : path.join(app.getAppPath(), 'vendor', 'cloudflared.exe');
       tunnel = startTunnel({ executable, token: secrets.tunnelToken, protocol: config.protocol, onState: state, onLog: log });
       log('网关已启动，等待隧道连接');
@@ -219,7 +233,17 @@ async function createWindow() {
   window = new BrowserWindow({ title: '卷桥', show: process.env.SCROLLBRIDGE_SMOKE !== '1', width: 1160, height: 850, minWidth: 960, minHeight: 700, backgroundColor: '#f7f4ed', autoHideMenuBar: true, icon: path.join(app.getAppPath(), 'ui', 'icon.png'), webPreferences: { preload: path.join(__dirname, 'preload.cjs'), nodeIntegration: false, contextIsolation: true, sandbox: true, spellcheck: false } });
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   window.webContents.on('will-navigate', e => e.preventDefault());
-  window.on('focus',()=>{startup?.refresh();publish();});
+  const pauseRecords=()=>{recordsCatchUp=true;clearTimeout(recordPublishTimer);recordPublishTimer=null;recordChanges.clear();};
+  window.on('minimize',pauseRecords);
+  window.on('hide',pauseRecords);
+  window.on('restore',publishRecords);
+  window.on('show',()=>{if(recordsCatchUp)publishRecords();});
+  window.on('focus',()=>{
+    const before=JSON.stringify(startup?.snapshot());
+    startup?.refresh();
+    if(before!==JSON.stringify(startup?.snapshot()))publish();
+    if(recordsCatchUp)publishRecords();
+  });
   await window.loadFile(path.join(app.getAppPath(), 'ui', 'index.html'));
   window.on('close', e => { if (!closing && gateway) { e.preventDefault(); window.hide(); tray.displayBalloon({ title: '卷桥', content: '连接仍在运行，可从托盘退出。' }); } });
 }

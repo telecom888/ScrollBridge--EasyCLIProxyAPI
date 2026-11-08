@@ -51,6 +51,25 @@ const root=path.resolve(__dirname,'..');
   await page.waitForFunction(()=>!$('export-records-dialog').open);await page.selectOption('#record-limit','custom');await page.fill('#record-limit-custom','100');await page.locator('#record-limit-form button').click();await page.click('#confirm-action-accept');await page.waitForFunction(()=>!pending&&snapshot.config.requestRecordLimit===100);assert.equal(await page.evaluate(()=>snapshot.records.length),100);
   await page.evaluate(async()=>{render(await call('save',{config:{recordRequestIP:true}}));});
   await page.click('[data-page=settings]');await page.waitForTimeout(250);await page.locator('#page-settings .panel').filter({has:page.getByRole('heading',{name:'连接',exact:true})}).screenshot({path:path.join(scratch,'settings-light.png')});await page.click('[data-page=records]');await page.waitForTimeout(250);await page.screenshot({path:path.join(scratch,'records-light.png')});await page.click('#theme-toggle');await page.waitForFunction(()=>!pending);await page.waitForTimeout(250);await page.screenshot({path:path.join(scratch,'records-dark.png')});
+  await page.emulateMedia({reducedMotion:'no-preference'});
+  await page.evaluate(()=>{
+   window.recordProbe={animations:0,catchUps:0,delta:0};
+   const animate=Element.prototype.animate;
+   Element.prototype.animate=function(...args){if(this.matches('#requests-table tr'))window.recordProbe.animations++;return animate.apply(this,args);};
+   window.bridge.onRecords(batch=>{if(batch.catchUp)window.recordProbe.catchUps++;else if(batch.incremental)window.recordProbe.delta++;});
+  });
+  for(const count of [20,100,1000]){
+   const before=await page.evaluate(()=>({id:snapshot.records[0].id,...window.recordProbe}));
+   await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].minimize());
+   for(let i=0;i<count;i+=32)await Promise.all(Array.from({length:Math.min(32,count-i)},()=>send('192.0.2.44')));
+   const started=Date.now();
+   await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows()[0].restore());
+   await page.waitForFunction(({id,catchUps})=>window.recordProbe.catchUps===catchUps+1&&snapshot.records[0].id!==id&&document.querySelector('#requests-table tbody tr')?.dataset.rowKey===snapshot.records[0].id,before);
+   const after=await page.evaluate(()=>({count:snapshot.records.length,unique:new Set(snapshot.records.map(r=>r.id)).size,matched:snapshot.records.filter(r=>r.requestIP==='192.0.2.44').length,...window.recordProbe}));
+   assert.equal(after.count,100);assert.equal(after.unique,100);assert.equal(after.matched,Math.min(100,count));assert.equal(after.animations,before.animations);assert.equal(after.delta,before.delta);
+   console.log(`Restore after ${count} requests: ${Date.now()-started} ms to updated list`);
+  }
+  assert.equal(await send('192.0.2.45'),401);await page.waitForFunction(()=>window.recordProbe.animations>0);
   assert.deepEqual(errors,[]);await app.close();app=await launch();page=await app.firstWindow();await page.waitForFunction(()=>typeof snapshot!=="undefined"&&!!snapshot);assert.equal(await page.evaluate(()=>snapshot.records.length),0);assert.equal(await page.evaluate(()=>snapshot.config.requestRecordLimit),100);assert.equal(await page.evaluate(()=>snapshot.config.updateSource),'mirror');
   console.log('IP and body capture, display toggles, blacklist, pagination, export, retention and restart passed:',scratch);
  }finally{if(app)await app.close();up.closeAllConnections();await new Promise(r=>up.close(r));}

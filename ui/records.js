@@ -1,21 +1,19 @@
 let requestPage=0,selectedRequestIP='',selectedBodyId='';
-function renderRequestRecords(){
- if(selectedBodyId&&!snapshot.records.some(row=>row.id===selectedBodyId))closeDialog($('request-body-dialog'));
+function renderRequestRecords(animate){
  const all=filteredRecords(),showIP=snapshot.config.recordRequestIP,showBody=snapshot.config.showRequestBody,table=$('requests-table');
- const isRequest=$('tunnel-logs').hidden;$('export-records').hidden=!isRequest;
  const pages=Math.max(1,Math.ceil(all.length/100));requestPage=Math.min(requestPage,pages-1);
  $('record-page-label').textContent=`第 ${requestPage+1} 页，共 ${pages} 页`;
  $('record-prev').disabled=requestPage===0;$('record-next').disabled=requestPage===pages-1;
- $('record-pagination').hidden=!isRequest || all.length<=100;
- $('record-note').textContent=isRequest?`仅保留本次运行的最近 ${snapshot.config.requestRecordLimit.toLocaleString('zh-CN')} 条请求，不记录请求头或查询参数；请求体仅保留有限预览。`:'仅保留本次运行的最近 100 条隧道记录。';
+ $('record-pagination').hidden=all.length<=100;
+ $('record-note').textContent=`仅保留本次运行的最近 ${snapshot.config.requestRecordLimit.toLocaleString('zh-CN')} 条请求，不记录请求头或查询参数；请求体仅保留有限预览。`;
  const limit=snapshot.config.requestRecordLimit;$('record-limit').querySelector('[value=custom]').textContent=[200,1000,5000,10000].includes(limit)?'自定义':`自定义（${limit.toLocaleString('zh-CN')} 条）`;
  if($('record-limit-form').hidden)$('record-limit').value=[200,1000,5000,10000].includes(limit)?String(limit):'custom';
  if(!all.length){replaceContent(table,`<div class="empty">${icon('file')}${$('record-filter-mode').value==='all'?'暂无请求':'所选密钥暂无请求'}</div>`);return;}
  if(!table.querySelector('tbody') || table.dataset.ip!==String(showIP) || table.dataset.body!==String(showBody)){
   table.dataset.ip=String(showIP);table.dataset.body=String(showBody);table.innerHTML=`<table><thead><tr><th>时间</th>${showIP?'<th>请求IP</th>':''}<th>密钥</th><th>方法</th><th>模型</th><th>路径</th><th>状态</th><th>耗时</th>${showBody?'<th>请求体</th>':''}</tr></thead><tbody></tbody></table>`;
  }
- const rows=all.slice(requestPage*100,(requestPage+1)*100).map(r=>`<tr data-row-key="${escapeHTML(r.id)}"><td>${time(r.time)}</td>${showIP?`<td>${r.requestIP?`<button class="request-ip" data-request-ip="${escapeHTML(r.requestIP)}" title="复制 IP 或加入黑名单">${escapeHTML(r.requestIP)}</button>`:'未记录'}</td>`:''}<td>${escapeHTML(r.keyName || '—')}</td><td>${escapeHTML(r.method)}</td><td class="record-model"><span>${escapeHTML(r.model || '—')}</span>${r.actualModel && r.actualModel!==r.model?`<small>实际模型：${escapeHTML(r.actualModel)}</small>`:''}</td><td class="path">${escapeHTML(r.path)}</td><td><span class="status-pill ${r.status>=400?'bad':''}">${r.status}</span>${r.reason?`<small class="record-reason">${escapeHTML(r.reason)}</small>`:''}</td><td>${r.ms} ms</td>${showBody?`<td><button class="text-button" data-view-body="${escapeHTML(r.id)}">查看</button></td>`:''}</tr>`).join('');
- reconcileRows(table.querySelector('tbody'),rows,row=>row.dataset.rowKey);
+ const rows=all.slice(requestPage*100,(requestPage+1)*100);
+ reconcileRecordRows(table.querySelector('tbody'),rows,r=>r.id,r=>`<tr><td>${time(r.time)}</td>${showIP?`<td>${r.requestIP?`<button class="request-ip" data-request-ip="${escapeHTML(r.requestIP)}" title="复制 IP 或加入黑名单">${escapeHTML(r.requestIP)}</button>`:'未记录'}</td>`:''}<td>${escapeHTML(r.keyName || '—')}</td><td>${escapeHTML(r.method)}</td><td class="record-model"><span>${escapeHTML(r.model || '—')}</span>${r.actualModel && r.actualModel!==r.model?`<small>实际模型：${escapeHTML(r.actualModel)}</small>`:''}</td><td class="path">${escapeHTML(r.path)}</td><td><span class="status-pill ${r.status>=400?'bad':''}">${r.status}</span>${r.reason?`<small class="record-reason">${escapeHTML(r.reason)}</small>`:''}</td><td>${r.ms} ms</td>${showBody?`<td><button class="text-button" data-view-body="${escapeHTML(r.id)}">查看</button></td>`:''}</tr>`,{animate});
 }
 function renderRecordSettings(){
  $('recordRequestIP').checked=snapshot.config.recordRequestIP;
@@ -34,7 +32,7 @@ function openIPMenu(event){
 function initRecordsUI(){
  for(const button of document.querySelectorAll('[data-record-tab]'))button.addEventListener('click',()=>renderRecords());
  for(const id of ['record-filter-mode','record-key-single'])$(id).addEventListener('change',()=>{requestPage=0;renderRecords();});
- $('record-key-choices').addEventListener('change',()=>{requestPage=0;renderRecords();});
+ $('record-key-choices').addEventListener('change',event=>{const input=event.target;if(input.checked)recordKeySelection.add(input.value);else recordKeySelection.delete(input.value);requestPage=0;renderRecords();});
  $('record-prev').onclick=()=>{requestPage=Math.max(0,requestPage-1);renderRecords();};$('record-next').onclick=()=>{requestPage++;renderRecords();};
  $('recordRequestIP').onchange=()=>task($('recordRequestIP'),async()=>{try{await changeSetting({recordRequestIP:$('recordRequestIP').checked});}finally{render(await call('snapshot'));}});
  $('showRequestBody').onchange=()=>task($('showRequestBody'),async()=>{await changeSetting({showRequestBody:$('showRequestBody').checked});render(await call('snapshot'));});
