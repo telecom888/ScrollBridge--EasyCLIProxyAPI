@@ -54,7 +54,7 @@
   </section>
   <section id="page-records" class="page" hidden><div class="section-head"><div class="tabs" id="record-tabs"><button class="active" data-record-tab="requests">请求</button><button data-record-tab="tunnel">隧道</button><button data-record-tab="chart">图表</button></div><div class="record-actions"><button id="export-records" class="secondary">导出记录</button><button id="clear-records" class="text-button">清空</button></div></div><div id="record-key-filters" class="record-filters"><label>密钥范围<select id="record-filter-mode"><option value="all">全部</option><option value="single">单个密钥</option><option value="multiple">多个密钥</option></select></label><label id="record-single-field" hidden>选择密钥<select id="record-key-single"></select></label><details id="record-multiple-field" hidden><summary id="record-selection-summary">选择密钥</summary><div id="record-key-choices" class="record-key-choices"></div></details><label>保留数量<select id="record-limit"><option value="200">200 条</option><option value="1000">1,000 条</option><option value="5000">5,000 条</option><option value="10000">10,000 条</option><option value="custom">自定义</option></select></label><form id="record-limit-form" hidden><label class="sr-only" for="record-limit-custom">记录数量</label><input id="record-limit-custom" type="number" min="100" max="10000" step="1" required><button type="submit" class="secondary">确定</button></form><span id="record-filter-count" class="note" aria-live="polite"></span></div><div class="panel records-panel"><div id="requests-table"></div><div id="tunnel-logs" hidden></div><div id="call-chart-view" hidden><div class="chart-toolbar"><label>时间范围<select id="chart-range"><option value="3h">三小时内</option><option value="6h">六小时内</option><option value="24h">二十四小时内</option><option value="today">当天</option><option value="7d">一周内</option><option value="30d">一月内</option></select></label><div id="chart-total" aria-live="polite">调用次数 0</div></div><div id="chart-bars" class="chart-bars" role="img" aria-label="按时间统计的模型调用量柱状图"></div></div></div><div id="record-pagination" class="record-pagination" hidden><button id="record-prev" class="secondary">上一页</button><span id="record-page-label"></span><button id="record-next" class="secondary">下一页</button></div><p id="record-note" class="note"></p></section>
   <section id="page-catalog" class="page" hidden>
-    <div class="panel"><div class="section-head"><div><h2>本地模型</h2><div id="catalog-summary" class="note">尚未获取</div></div><button id="refresh-models" class="secondary"><span data-icon="download"></span>从代理获取</button></div><input id="model-search" type="search" placeholder="搜索模型" aria-label="搜索模型" spellcheck="false"><div id="catalog-list" class="catalog-list"></div></div>
+    <div class="panel"><div class="section-head"><div><h2>模型列表</h2><div id="catalog-summary" class="note">尚未获取</div></div><button id="refresh-models" class="secondary"><span data-icon="download"></span>从代理获取</button></div><input id="model-search" type="search" placeholder="搜索模型" aria-label="搜索模型" spellcheck="false"><div id="catalog-list" class="catalog-list"></div><div id="hosted-catalog-list" class="catalog-list"></div></div>
     <p class="note">开关自动保存，对后续外部请求立即生效。关闭的模型会从外部列表隐藏，直接调用也会被拒绝。首次获取和新发现的模型默认开放。</p>
   </section>
 
@@ -86,6 +86,10 @@
           <div id="hosting-added-models"></div>
         </div>
       </div>
+    </div>
+    <div class="panel" id="hosting-routes-panel">
+      <div class="section-head"><h2>同名模型路由</h2></div>
+      <div id="hosting-route-groups"><div class="empty">暂无相同模型的多个来源</div></div>
     </div>
   </section>
   <section id="page-settings" class="page" hidden>

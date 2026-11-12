@@ -36,7 +36,7 @@ function renderManagement() {
   for(const button of $('key-list').querySelectorAll('button'))button.disabled=keySaving;
   if(menuKeyId && !snapshot.keys.some(key=>key.id===menuKeyId))$('key-menu').hidePopover();
   updateKeyEditorControls();
-  const choices=availableEntries($('access-key').value).map(row=>row.name);
+  const choices=[...new Set(availableEntries($('access-key').value).map(row=>row.name))];
   const selected=$('example-model').value;
   replaceContent($('example-model'),'<option value="">选择模型</option>'+choices.map(name=>`<option value="${escapeHTML(name)}">${escapeHTML(name)}</option>`).join(''));
   $('example-model').value=choices.includes(selected)?selected:'';

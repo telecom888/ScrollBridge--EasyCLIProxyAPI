@@ -65,7 +65,7 @@ function render(s) {
   $('imagesEnabled').checked = s.config.imagesEnabled;
   $('geminiImageCompatibility').checked = s.config.geminiImageCompatibility;
   $('speechEnabled').checked = s.config.speechEnabled;
-  renderRecordSettings();renderModelRefreshSettings();renderManagement();renderDiagnosticModels();renderUpdates();renderHosting();
+  renderRecordSettings();renderModelRefreshSettings();renderManagement();renderDiagnosticModels();renderUpdates();renderHosting();renderHostingRoutes();
   $('showModelSources').checked=s.config.showModelSources; $('unifiedModelRouting').checked=s.config.unifiedModelRouting;
   $('version').textContent = `v${s.version.replace(/-beta(?:\.\d+)?$/,' beta')}`; renderExample(); refreshRecordView(s.recordsCatchUp); renderDiagnostics(); renderModelCatalog();
 }
@@ -195,7 +195,7 @@ function renderModelCatalog() {
   const visible = [...rows.values()].filter(row => row.id.toLowerCase().includes(query));
   const open = known.filter(id => !disabled.has(canonicalModel(id))).length;
   if(replaceContent($('catalog-summary'),snapshot.config.modelsUpdatedAt ? descriptionRows([['模型总数',known.length],['对外开放',open],['更新时间',new Date(snapshot.config.modelsUpdatedAt).toLocaleString('zh-CN',{hour12:false})]]) : '从本地代理获取可用模型')) reveal($('catalog-summary'));
-  const catalogHTML = visible.length ? visible.map(row => { const enabled = row.available && !disabled.has(canonicalModel(row.id)),rule=row.rule; return `<div class="catalog-row"><div><code>${escapeHTML(row.id)}</code><p class="${row.available ? '' : 'unavailable-model'}">${row.available ? (enabled ? '全局开放' : '全局已关闭') : '已下架，全局已关闭'}</p><p class="alias-summary">对外 ID：${escapeHTML((exposures.get(rule?.id) || []).join('、') || row.id)}</p></div><div class="catalog-actions">${rule?`<button class="secondary" data-edit-alias="${rule.id}">编辑对外 ID</button>`:''}${!row.available && rule ? `<button class="secondary danger-text" data-delete-model="${rule.id}">删除</button>` : ''}<button type="button" class="model-switch" role="switch" aria-checked="${enabled}" aria-label="${escapeHTML(row.id)} 外部访问" data-modelid="${escapeHTML(row.id)}" ${pending || !row.available ? 'disabled' : ''}><span></span></button></div></div>`; }).join('') : `<div class="empty">${query ? '没有匹配的模型' : '点击「从代理获取」加载模型'}</div>`;
+  const catalogHTML = visible.length ? visible.map(row => { const enabled = row.available && !disabled.has(canonicalModel(row.id)),rule=row.rule; return `<div class="catalog-row"><div><code>${escapeHTML(row.id)}</code><p class="${row.available ? '' : 'unavailable-model'}">${row.available ? (enabled ? '全局开放' : '全局已关闭') : '已下架，全局已关闭'}</p><p class="alias-summary">${snapshot.config.showModelSources ? '本地代理\n' : ''}对外 ID：${escapeHTML((exposures.get(rule?.id) || []).join('、') || row.id)}</p></div><div class="catalog-actions">${rule?`<button class="secondary" data-edit-alias="${rule.id}">编辑对外 ID</button>`:''}${!row.available && rule ? `<button class="secondary danger-text" data-delete-model="${rule.id}">删除</button>` : ''}<button type="button" class="model-switch" role="switch" aria-checked="${enabled}" aria-label="${escapeHTML(row.id)} 外部访问" data-modelid="${escapeHTML(row.id)}" ${pending || !row.available ? 'disabled' : ''}><span></span></button></div></div>`; }).join('') : `<div class="empty">${query ? '没有匹配的模型' : '点击「从代理获取」加载模型'}</div>`;
   reconcileRows($('catalog-list'),catalogHTML,row=>row.querySelector('[data-modelid]')?.dataset.modelid || `empty:${row.textContent}`,(row,next)=>{
     const control=row.querySelector('[data-modelid]'), incoming=next.querySelector('[data-modelid]');
     if(!control) return;
@@ -211,6 +211,7 @@ function renderModelCatalog() {
     await task(button, async () => { render(await call('setModelAccess', { model:button.dataset.modelid, enabled:button.getAttribute('aria-checked') !== 'true' })); toast('模型访问设置已保存'); });
     renderModelCatalog();
   });
+  renderHostedCatalog();
 }
 let deleteModelId;
 $('cancel-model-delete').onclick=()=>closeDialog($('model-delete-dialog'));

@@ -294,3 +294,14 @@ dialog[data-overlay-phase=closing]{pointer-events:none}
 .hosting-added-row code{overflow-wrap:anywhere}.hosting-added-row button{flex-shrink:0}
 @media(max-width:950px){.hosting-workspace{grid-template-columns:1fr}}
 @media(prefers-reduced-motion:reduce){.hosting-account{transition:none}}
+
+/* Model routing uses the same subdued cards and button motion as the key manager. */
+#hosting-routes-panel{margin-top:19px}
+.hosting-route-group{border-top:1px solid var(--line);padding:14px 0}
+.hosting-route-group summary{font-size:14px;font-weight:600;cursor:pointer;overflow-wrap:anywhere}
+.hosting-route-row{display:grid;grid-template-columns:26px minmax(100px,1fr) auto;align-items:center;gap:12px;padding:11px 3px;border-bottom:1px solid var(--line)}
+.hosting-route-row strong{font-size:14px;overflow-wrap:anywhere}
+.hosting-route-rank{color:var(--accent);font-size:16px}
+.hosting-route-actions{display:flex;gap:8px}
+.hosting-route-actions .secondary{padding:7px 12px}
+.alias-summary{white-space:pre-line}

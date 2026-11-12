@@ -84,3 +84,76 @@ function initHosting(){
  });
  resetHostingForm(null);
 }
+
+function hostingGroups(){
+  if(!snapshot)return [];
+  const groups=new Map();
+  const add=(id,modelId,source,enabled)=>{
+    const key=modelId.trim().replace(/^models\//i,'').toLowerCase();
+    if(!groups.has(key))groups.set(key,[]);
+    groups.get(key).push({id,modelId,source,enabled});
+  };
+  for(const rule of snapshot.config.modelRules)add(rule.id,rule.actual,'本地代理',snapshot.config.knownModels.some(id=>id.toLowerCase()===rule.actual.toLowerCase())&&!snapshot.config.disabledModels.includes(rule.actual.toLowerCase()));
+  const p=new Map(snapshot.config.hostingProviders.map(row=>[row.id,row]));
+  for(const row of snapshot.config.hostingModels){const account=p.get(row.providerId);if(account)add(row.id,row.modelId,account.name,row.enabled&&account.enabled);}
+  return [...groups].filter(([,list])=>list.length>1).map(([name,list])=>{
+    const preferred=snapshot.config.hostingRouteOrders?.[name]||[];
+    const order=list.slice().sort((a,b)=>{
+      const ai=preferred.indexOf(a.id),bi=preferred.indexOf(b.id);
+      if(ai<0&&bi<0)return 0;
+      return (ai<0?100000:ai)-(bi<0?100000:bi);
+    });
+    return {name,order};
+  });
+}
+function renderHostingRoutes(){
+  const host=$('hosting-route-groups');if(!host||!snapshot)return;
+  host.replaceChildren();
+  const groups=hostingGroups();
+  if(!groups.length){const empty=document.createElement('div');empty.className='empty';empty.textContent='暂无相同模型的多个来源';host.append(empty);return;}
+  for(const group of groups){
+    const details=document.createElement('details');details.className='hosting-route-group';details.open=true;
+    const summary=document.createElement('summary');summary.textContent=group.name;details.append(summary);
+    group.order.forEach((source,index)=>{
+      const row=document.createElement('div');row.className='hosting-route-row';
+      const num=document.createElement('span');num.className='hosting-route-rank';num.textContent=String(index+1);
+      const name=document.createElement('strong');name.textContent=source.source;
+      if(!source.enabled){name.classList.add('unavailable-model');name.title='该模型来源当前已停用';}
+      const controls=document.createElement('div');controls.className='hosting-route-actions';
+      for(const [direction,symbol] of [[-1,'上移'],[1,'下移']]){
+        const button=document.createElement('button');button.type='button';button.className='secondary';
+        button.textContent=symbol;button.disabled=index+direction<0||index+direction>=group.order.length;
+        button.setAttribute('aria-label',symbol+source.source);
+        button.onclick=()=>task(button,async()=>{
+          const order=group.order.map(item=>item.id),next=index+direction;
+          [order[index],order[next]]=[order[next],order[index]];
+          render(await call('setHostingRouteOrder',{modelId:group.name,order}));
+          toast('路由优先级已保存');
+        });
+        controls.append(button);
+      }
+      row.append(num,name,controls);details.append(row);
+    });
+    host.append(details);
+  }
+}
+function renderHostedCatalog(){
+  const host=$('hosted-catalog-list');if(!host||!snapshot)return;
+  host.replaceChildren();
+  const query=$('model-search').value.trim().toLowerCase();
+  const entries=snapshot.modelEntries.filter(row=>row.hosted&&row.actual.toLowerCase().includes(query));
+  for(const entry of entries){
+    const row=document.createElement('div');row.className='catalog-row';
+    const left=document.createElement('div'),id=document.createElement('code');
+    id.textContent=entry.actual;left.append(id);
+    if(snapshot.config.showModelSources){const source=document.createElement('p');source.className='alias-summary';source.textContent=entry.source;left.append(source);}
+    const publicId=document.createElement('p');publicId.className='alias-summary';publicId.textContent='对外 ID：'+entry.name;left.append(publicId);
+    const actions=document.createElement('div');actions.className='catalog-actions';
+    const toggle=document.createElement('button');toggle.type='button';toggle.className='model-switch';toggle.setAttribute('role','switch');
+    toggle.setAttribute('aria-checked',String(entry.globalEnabled));toggle.setAttribute('aria-label',entry.source+' '+entry.actual+' 外部访问');
+    toggle.dataset.hostedModel=entry.id;toggle.disabled=!entry.available||pending;
+    const knob=document.createElement('span');toggle.append(knob);
+    toggle.onclick=()=>task(toggle,async()=>{render(await call('setHostingModelAccess',{id:entry.id,enabled:toggle.getAttribute('aria-checked')!=='true'}));toast('模型访问设置已保存');});
+    actions.append(toggle);row.append(left,actions);host.append(row);
+  }
+}
