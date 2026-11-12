@@ -4,6 +4,7 @@
 
 - [项目说明与快速开始](../README.md)：安装、连接、域名、权限和配置位置。
 - [请求记录](request-logs.md)：IP、黑名单、正文预览、保留数量和导出。
+- [托管与模型路由](hosting.md)：托管密钥、来源优先级、协议范围与调用图表。
 - [语音接口](speech-interface.md)：请求参数、适配方式与本地代理要求。
 - [隧道恢复](tunnel-recovery.md)：网络切换、重连时限和停止行为。
 - [更新与发布](updates.md)：三种包的升级、签名及 GitHub Actions。

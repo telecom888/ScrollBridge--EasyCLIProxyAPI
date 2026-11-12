@@ -1,5 +1,8 @@
 const { app, BrowserWindow, ipcMain, dialog, shell, clipboard, nativeImage, Tray, Menu, session, net } = require('electron');
 const {RequestRecords,normalizeIP,exportRecords}=require('../lib/request-records.cjs');
+const {CallStats}=require('../lib/call-stats.cjs');
+const {startHostedBridge}=require('../lib/hosted-bridge.cjs');
+const {randomBytes}=require('node:crypto');
 const requestRecords=new RequestRecords();
 const fs = require('node:fs');
 const path = require('node:path');
@@ -13,6 +16,7 @@ const { startTunnel } = require('../lib/tunnel.cjs');
 const { provision } = require('../lib/cloudflare.cjs');
 const {localCheck,publicCheck}=require('../lib/diagnostics.cjs');
 const {fetchModels,modelKey,modelName}=require('../lib/models.cjs');
+const {fetchHostingModels,safeBase}=require('../lib/hosting.cjs');
 const {uid,newKey,syncModels,deleteUnavailableModel,entries}=require('../lib/policy.cjs');
 const {createModelRefresh}=require('../lib/model-refresh.cjs');
 const {startManagementAPI}=require('../lib/management-api.cjs');
@@ -26,10 +30,11 @@ const configDirectory = dataDirectory({testDirectory:process.env.SCROLLBRIDGE_TE
 // Both desktop editions and every portable filename share the same identity.
 const profileDirectory = process.env.SCROLLBRIDGE_TEST_PROFILE || process.env.SCROLLBRIDGE_TEST_DATA || path.join(app.getPath('appData'), 'ScrollBridge');
 fs.mkdirSync(profileDirectory, {recursive:true});
+let callStats;
 app.setPath('userData', profileDirectory);
 const ownsProfile = app.requestSingleInstanceLock();
 if (!ownsProfile) app.quit();
-let window, tray, store, config, secrets, gateway, tunnel, closing = false, busy = false;
+let window, tray, store, config, secrets, gateway, tunnel, hostedBridge, closing = false, busy = false;
 let modelRefresh, managementAPI, updater, startup;
 let status = 'stopped', message = '', logs = [], localDiagnostic = null, publicDiagnostic = null;
 const view = () => ({ config, keys:config.accessKeys.map(key=>({...key,masked:`${secrets.keyValues[key.id].slice(0,6)}…${secrets.keyValues[key.id].slice(-4)}`})), modelEntries:entries(config),hasUpstreamKey: !!secrets.upstreamKey, hasTunnelToken: !!secrets.tunnelToken, gatewayRunning: !!gateway, status, message, records:requestRecords.all(config.recordRequestIP,config.showRequestBody), logs, localDiagnostic, publicDiagnostic, update:updater?.snapshot(),startup:startup?.snapshot(),version: app.getVersion(),features:{billing:gatewayEngine==='go',keyLimits:gatewayEngine==='go'} });
@@ -62,7 +67,7 @@ function publishRecords() {
 }
 function state(next, detail = '') { status = next; message = detail; publish(); }
 function log(line) { logs.unshift({ time: new Date().toISOString(), text: line }); if(logs.length>100)logs.length=100;publishRecords(); }
-async function stop() { if (tunnel) { const t = tunnel; tunnel = null; await t.stop(); } if (gateway) { const g = gateway; gateway = null; await g.close(); } state('stopped'); }
+async function stop() { if (tunnel) { const t = tunnel; tunnel = null; await t.stop(); } if (gateway) { const g = gateway; gateway = null; await g.close(); } if(hostedBridge){const h=hostedBridge;hostedBridge=null;await h.close();} state('stopped'); }
 async function save(payload = {}) {
   if(payload.config?.updateSource!==undefined)throw new Error('请通过更新来源选项修改');
   if(['accessKeys','modelRules'].some(field=>payload.config?.[field]!==undefined) || payload.accessKey!==undefined)throw new Error('请通过密钥或模型页面编辑');
@@ -96,6 +101,60 @@ const actions = {
   downloadUpdate: () => {void updater.download().catch(e=>log(e.message));return updater.snapshot();},
   installUpdate: () => {void updater.apply().catch(e=>log(e.message));return updater.snapshot();},
   snapshot: () => {startup?.refresh();return view();},
+  getCallChart: payload => callStats.chart(payload?.range || '3h'),
+  revealHostingKey: payload => {const p=config.hostingProviders.find(p=>p.id===payload?.id);if(!p)throw Error('托管密钥不存在');return {value:secrets.hostingKeys?.[p.id]||''};},
+  copyHostingKey: payload => {const p=config.hostingProviders.find(p=>p.id===payload?.id);if(!p)throw Error('托管密钥不存在');clipboard.writeText(secrets.hostingKeys?.[p.id]||'');return true;},
+  saveHostingProvider: payload => {
+    if(!payload || typeof payload.name!=='string' || typeof payload.protocol!=='string' || typeof payload.enabled!=='boolean')throw Error('托管账号配置无效');
+    const old=payload.id?config.hostingProviders.find(p=>p.id===payload.id):null;
+    if(payload.id&&!old)throw Error('托管账号不存在');
+    if(!old && (!payload.key || typeof payload.key!=='string'))throw Error('请输入 API Key');
+    if(payload.key!==undefined && (typeof payload.key!=='string' || payload.key.length>8192 || /[\r\n]/.test(payload.key)))throw Error('API Key 无效');
+    const p={id:old?.id||uid(),name:payload.name.trim(),protocol:payload.protocol,baseUrl:safeBase(payload.protocol,payload.baseUrl),enabled:payload.enabled};
+    if(p.protocol==='vertex'){p.projectId=payload.projectId?.trim()||'';p.location=payload.location?.trim()||'global';}
+    // Reject protocol or project changes while old models are attached to avoid silent route changes.
+    if(old && config.hostingModels.some(m=>m.providerId===old.id) && (old.protocol!==p.protocol || old.projectId!==p.projectId || old.location!==p.location))throw Error('请先移除该账号的模型再修改协议或 Vertex 项目');
+    const providers=old?config.hostingProviders.map(x=>x.id===p.id?p:x):[...config.hostingProviders,p];
+    const nextSecrets={...secrets,hostingKeys:{...secrets.hostingKeys,...(payload.key?{[p.id]:payload.key}:{})}};
+    return commit({...config,hostingProviders:providers},nextSecrets).then(()=>({providerId:p.id}));
+  },
+  setHostingRouteOrder: payload => {
+    if(!payload||typeof payload.modelId!=='string'||!Array.isArray(payload.order))throw Error('路由配置无效');
+    const {routeKey}=require('../lib/hosting.cjs');
+    const group=routeKey(payload.modelId);
+    const members=[...config.modelRules.filter(m=>routeKey(m.actual)===group).map(m=>m.id),...config.hostingModels.filter(m=>routeKey(m.modelId)===group).map(m=>m.id)];
+    if(members.length<2||members.length!==payload.order.length||new Set(payload.order).size!==members.length||payload.order.some(id=>!members.includes(id)))throw Error('路由来源必须完整且不能重复');
+    return commit({...config,hostingRouteOrders:{...config.hostingRouteOrders,[group]:payload.order}});
+  },
+  deleteHostingProvider: payload => {
+    const p=config.hostingProviders.find(p=>p.id===payload?.id);if(!p)throw Error('托管账号不存在');
+    const deleted=new Set(config.hostingModels.filter(m=>m.providerId===p.id).map(m=>m.id));
+    const hostingKeys={...secrets.hostingKeys};delete hostingKeys[p.id];
+    const orders=Object.fromEntries(Object.entries(config.hostingRouteOrders).map(([k,order])=>[k,order.filter(id=>!deleted.has(id))]).filter(([,order])=>order.length>1));
+    return commit({...config,hostingProviders:config.hostingProviders.filter(x=>x.id!==p.id),hostingModels:config.hostingModels.filter(m=>m.providerId!==p.id),hostingRouteOrders:orders,accessKeys:config.accessKeys.map(k=>({...k,allowed:k.allowed.filter(id=>!deleted.has(id))}))},{...secrets,hostingKeys});
+  },
+  fetchHostingModels: async payload => {
+    const p=config.hostingProviders.find(p=>p.id===payload?.id);if(!p)throw Error('托管账号不存在');
+    const key=secrets.hostingKeys?.[p.id];if(!key)throw Error('托管密钥尚未配置');
+    return fetchHostingModels(p,key);
+  },
+  addHostingModels: payload => {
+    const p=config.hostingProviders.find(p=>p.id===payload?.providerId);if(!p)throw Error('托管账号不存在');
+    if(!Array.isArray(payload.models) || payload.models.length<1 || payload.models.length>500 || payload.models.some(id=>typeof id!=='string'))throw Error('模型列表无效');
+    const existing=new Set(config.hostingModels.filter(m=>m.providerId===p.id).map(m=>m.modelId.toLowerCase()));
+    const added=[];
+    for(const raw of payload.models){const modelId=raw.trim();if(!/^[a-zA-Z0-9][a-zA-Z0-9._:\/-]{0,127}$/.test(modelId))throw Error('无效的模型 ID');if(!existing.has(modelId.toLowerCase())){added.push({id:uid(),providerId:p.id,modelId,enabled:true});existing.add(modelId.toLowerCase());}}
+    return commit({...config,hostingModels:[...config.hostingModels,...added]});
+  },
+  removeHostingModel: payload => {
+    const old=config.hostingModels.find(m=>m.id===payload?.id);if(!old)throw Error('托管模型不存在');
+    const orders=Object.fromEntries(Object.entries(config.hostingRouteOrders).map(([k,order])=>[k,order.filter(id=>id!==old.id)]).filter(([,order])=>order.length>1));
+    return commit({...config,hostingModels:config.hostingModels.filter(m=>m.id!==old.id),hostingRouteOrders:orders,accessKeys:config.accessKeys.map(k=>({...k,allowed:k.allowed.filter(id=>id!==old.id)}))});
+  },
+  setHostingModelAccess: payload => {
+    const old=config.hostingModels.find(m=>m.id===payload?.id);if(!old || typeof payload.enabled!=='boolean')throw Error('托管模型配置无效');
+    return commit({...config,hostingModels:config.hostingModels.map(m=>m.id===old.id?{...m,enabled:payload.enabled}:m)});
+  },
   revealKey: payload => {const key=findKey(payload?.id);return {id:key.id,value:secrets.keyValues[key.id]};},
   save,
   copyKey: payload => { const key=findKey(payload?.id);clipboard.writeText(secrets.keyValues[key.id]); return true; },
@@ -156,8 +215,15 @@ const actions = {
     if (!config.hostname || !secrets.tunnelToken) throw new Error('请先填写域名和隧道令牌');
     state('starting');
     try {
-      await fetchModels(config,secrets);
-      gateway = await startGateway(config, secrets, record => { requestRecords.resize(config.requestRecordLimit);const row=requestRecords.add(record);if(windowVisible()&&!recordsCatchUp)recordChanges.set(row.id,row);if(recordChanges.size>config.requestRecordLimit)recordChanges.delete(recordChanges.keys().next().value);publishRecords(); }, { executable:app.isPackaged?path.join(process.resourcesPath,'vendor','scrollbridge-gateway.exe'):path.join(app.getAppPath(),'vendor','scrollbridge-gateway.exe'),stateDir:path.join(app.getPath('userData'),'gateway-go'),onExit:()=>{void stop().then(()=>state('error','网关意外退出，请重新连接'));},getConfig:()=>config,getSecrets:()=>secrets });
+      try { await fetchModels(config,secrets); }
+      catch(error){
+        const hasHosted=config.hostingModels.some(m=>m.enabled&&config.hostingProviders.some(p=>p.id===m.providerId&&p.enabled));
+        if(!hasHosted)throw error;
+        log('本地代理暂时不可用，将使用已启用的托管模型');
+      }
+      const hostingToken=randomBytes(32).toString('base64url');
+      hostedBridge=await startHostedBridge({getConfig:()=>config,getSecrets:()=>secrets,token:hostingToken});
+      gateway = await startGateway(config, secrets, record => { requestRecords.resize(config.requestRecordLimit);callStats.record(record);const row=requestRecords.add(record);if(windowVisible()&&!recordsCatchUp)recordChanges.set(row.id,row);if(recordChanges.size>config.requestRecordLimit)recordChanges.delete(recordChanges.keys().next().value);publishRecords(); }, { executable:app.isPackaged?path.join(process.resourcesPath,'vendor','scrollbridge-gateway.exe'):path.join(app.getAppPath(),'vendor','scrollbridge-gateway.exe'),stateDir:path.join(app.getPath('userData'),'gateway-go'),onExit:()=>{void stop().then(()=>state('error','网关意外退出，请重新连接'));},getConfig:()=>config,getSecrets:()=>secrets,hostingUrl:hostedBridge.url,hostingToken });
       const executable = app.isPackaged ? path.join(process.resourcesPath, 'vendor', 'cloudflared.exe') : path.join(app.getAppPath(), 'vendor', 'cloudflared.exe');
       tunnel = startTunnel({ executable, token: secrets.tunnelToken, protocol: config.protocol, onState: state, onLog: log });
       log('网关已启动，等待隧道连接');
@@ -203,7 +269,7 @@ const actions = {
     if(typeof payload?.id!=='string'||payload.id.length>100)throw Error('请求记录无效');
     const body=requestRecords.body(payload.id);
     if(typeof body.preview!=='string')return body;
-    let preview=body.preview;for(const value of [secrets.upstreamKey,secrets.tunnelToken,...Object.values(secrets.keyValues)])if(value)preview=preview.split(value).join('[已隐藏密钥]');
+    let preview=body.preview;for(const value of [secrets.upstreamKey,secrets.tunnelToken,...Object.values(secrets.keyValues),...Object.values(secrets.hostingKeys||{})])if(value)preview=preview.split(value).join('[已隐藏密钥]');
     return {...body,preview};
   },
   exportRecords: async payload=>{
@@ -223,7 +289,7 @@ function updateModels(knownModels) {
 }
 async function invokeAction(action,payload) {
   if(!Object.hasOwn(actions,action))throw Object.assign(new Error('请求无效'),{status:404,code:'NOT_FOUND'});
-  const mutation=!['snapshot','getRequestBody','copyRequestIP','exportRecords','copy','copyKey','revealKey','openCloudflare','openGuide','openData','openRepository','checkUpdates','downloadUpdate','installUpdate'].includes(action);
+  const mutation=!['snapshot','getCallChart','fetchHostingModels','revealHostingKey','copyHostingKey','getRequestBody','copyRequestIP','exportRecords','copy','copyKey','revealKey','openCloudflare','openGuide','openData','openRepository','checkUpdates','downloadUpdate','installUpdate'].includes(action);
   if(closing)throw Object.assign(new Error('程序正在退出'),{status:503,code:'SHUTTING_DOWN'});
   if(mutation && busy)throw Object.assign(new Error('请等待当前操作完成'),{status:409,code:'BUSY'});
   if(mutation)busy=true;
@@ -252,7 +318,7 @@ app.whenReady().then(async () => {
   if (!ownsProfile) return;
   session.defaultSession.setPermissionRequestHandler((_, __, cb) => cb(false));
   store = new Store(configDirectory);
-  try { ({ config, secrets } = store.load()); } catch (e) {
+  try { ({ config, secrets } = store.load()); callStats=new CallStats(profileDirectory); } catch (e) {
     const reportPath = path.join(configDirectory, 'startup-error.json');
     let reportSaved = false;
     try {
@@ -315,4 +381,4 @@ app.whenReady().then(async () => {
   }
 });
 app.on('window-all-closed', () => { if (!gateway) { closing = true; app.quit(); } });
-app.on('before-quit', e => { modelRefresh?.stop();managementAPI?.close();if (gateway || tunnel) { e.preventDefault(); closing = true; stop().finally(() => app.quit()); } });
+app.on('before-quit', e => { try{callStats?.close();}catch{console.warn('调用统计保存失败');} modelRefresh?.stop();managementAPI?.close();if (gateway || tunnel || hostedBridge) { e.preventDefault(); closing = true; stop().finally(() => app.quit()); } });

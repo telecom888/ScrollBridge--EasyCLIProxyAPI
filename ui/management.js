@@ -36,7 +36,7 @@ function renderManagement() {
   for(const button of $('key-list').querySelectorAll('button'))button.disabled=keySaving;
   if(menuKeyId && !snapshot.keys.some(key=>key.id===menuKeyId))$('key-menu').hidePopover();
   updateKeyEditorControls();
-  const choices=availableEntries($('access-key').value).map(row=>row.name);
+  const choices=[...new Set(availableEntries($('access-key').value).map(row=>row.name))];
   const selected=$('example-model').value;
   replaceContent($('example-model'),'<option value="">选择模型</option>'+choices.map(name=>`<option value="${escapeHTML(name)}">${escapeHTML(name)}</option>`).join(''));
   $('example-model').value=choices.includes(selected)?selected:'';
@@ -99,13 +99,25 @@ function renderPermissionChoices() {
   const query=$('permission-search').value.trim().toLowerCase(),all=$('key-all').checked;
   const groups=new Map();
   for(const entry of snapshot.modelEntries || []) {
-    if(!`${entry.name} ${entry.actual}`.toLowerCase().includes(query))continue;
+    if(!`${entry.name} ${entry.actual} ${entry.source||''}`.toLowerCase().includes(query))continue;
     if(!groups.has(entry.actual))groups.set(entry.actual,[]);groups.get(entry.actual).push(entry);
   }
-  $('key-permissions').innerHTML=[...groups].map(([actual,rows])=>`<div class="permission-group"><strong>${escapeHTML(actual)}</strong>${rows.map(row=>`<label class="permission-choice ${!row.globalEnabled || !row.available?'blocked':''}"><input type="checkbox" data-permission="${row.id}" data-blocked="${!row.globalEnabled || !row.available}" ${all || permissionSelection.has(row.id)?'checked':''} ${!row.globalEnabled || !row.available?'disabled':''}><span><code>${escapeHTML(row.name)}</code><small>${!row.available?'代理当前未提供':!row.globalEnabled?'全局已关闭':''}</small></span></label>`).join('')}</div>`).join('') || `<p class="note">${query?'没有匹配的模型。':'请先在「模型」页从代理获取模型。'}</p>`;
+  const grouped=[...groups].map(([actual,rows])=>{
+    if(!snapshot.config.unifiedModelRouting)return [actual,rows.map(row=>[row])];
+    const byName=new Map();
+    for(const row of rows){if(!byName.has(row.name))byName.set(row.name,[]);byName.get(row.name).push(row);}
+    return [actual,[...byName.values()]];
+  });
+  $('key-permissions').innerHTML=grouped.map(([actual,items])=>'<div class="permission-group"><strong>'+escapeHTML(actual)+'</strong>'+items.map(sources=>{
+    const row=sources[0],ids=sources.map(x=>x.id);
+    const available=sources.some(x=>x.available&&x.globalEnabled);
+    const info=!available?(sources.some(x=>x.available)?'全局已关闭':'模型当前不可用'):'';
+    const origin=snapshot.config.showModelSources?[...new Set(sources.map(x=>x.source||'本地代理'))].join('、'):'';
+    return '<label class="permission-choice '+(!available?'blocked':'')+'"><input type="checkbox" data-permission="'+ids.join(',')+'" data-blocked="'+!available+'" '+(all||ids.some(id=>permissionSelection.has(id))?'checked':'')+' '+(!available?'disabled':'')+'><span><code>'+escapeHTML(row.name)+'</code><small>'+escapeHTML(origin||info)+'</small></span></label>';
+  }).join('')+'</div>').join('')||'<p class="note">'+(query?'没有匹配的模型。':'尚未添加模型。')+'</p>';
   for(const input of $('key-permissions').querySelectorAll('[data-permission]'))input.onchange=()=>{
-    if($('key-all').checked){permissionSelection=new Set((snapshot.modelEntries || []).map(row=>row.id));$('key-all').checked=false;}
-    if(input.checked)permissionSelection.add(input.dataset.permission);else permissionSelection.delete(input.dataset.permission);
+    if($('key-all').checked){permissionSelection=new Set((snapshot.modelEntries||[]).map(row=>row.id));$('key-all').checked=false;}
+    for(const id of input.dataset.permission.split(',')){if(input.checked)permissionSelection.add(id);else permissionSelection.delete(id);}
     markKeyDirty();
   };
   updatePermissionCount();

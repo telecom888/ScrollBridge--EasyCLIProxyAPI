@@ -262,3 +262,75 @@ dialog[data-overlay-phase=closing]{pointer-events:none}
 [popover]:popover-open{opacity:1;transform:translateY(0) scale(1);transition-duration:180ms;transition-timing-function:cubic-bezier(.16,1.2,.3,1)}
 [popover]:not(:popover-open){pointer-events:none}
 @starting-style{[popover]:popover-open{opacity:0;transform:translateY(-4px) scale(.97)}}
+
+/* Encrypted call activity chart. Matches the existing panel and motion timing. */
+.chart-toolbar{display:flex;align-items:end;justify-content:space-between;gap:18px;padding:18px 22px;border-bottom:1px solid var(--line)}
+.chart-toolbar label{min-width:180px}.chart-toolbar select{margin-top:3px}.chart-toolbar #chart-total{font-weight:600;font-size:16px}
+.chart-bars{display:flex;align-items:flex-end;gap:7px;min-height:276px;padding:26px 22px 15px;overflow-x:auto}
+.chart-cell{display:flex;flex-direction:column;justify-content:flex-end;align-items:center;min-width:22px;flex:1;height:240px;gap:8px;position:relative}
+.chart-column-wrap{height:194px;width:100%;max-width:48px;display:flex;align-items:flex-end;justify-content:center}
+.chart-column{display:block;width:100%;height:0;min-height:0;border-radius:5px 5px 0 0;background:var(--accent);opacity:.86;transition:height 360ms cubic-bezier(.2,.8,.2,1),opacity 230ms ease}
+.chart-cell:hover .chart-column{opacity:1}
+.chart-cell .chart-label{font-size:12px;color:var(--muted);white-space:nowrap}
+.chart-cell .chart-number{font-size:12px;color:var(--ink);min-height:18px}
+@media (prefers-reduced-motion:reduce){.chart-column{transition:none}}
+
+/* Hosting uses the existing panel, selection, and focus styles. */
+.hosting-workspace{display:grid;grid-template-columns:minmax(220px,.37fr) minmax(360px,.63fr);gap:18px;align-items:start}
+.hosting-list{padding:10px;min-height:270px}.hosting-account{width:100%;display:flex;align-items:center;gap:12px;justify-content:flex-start;background:transparent;text-align:left;padding:13px;border-radius:8px;transition:background 160ms ease}
+.hosting-account:hover,.hosting-account.active{background:var(--hover)}.hosting-account.active{color:var(--accent)}
+.hosting-account img{height:28px;width:28px;object-fit:contain}html[data-theme=dark] .hosting-account img{filter:invert(1)}
+.hosting-account strong{display:block;font-size:14px}.hosting-account small{font-size:13px;color:var(--muted)}.hosting-account .account-state{margin-left:auto;color:var(--success)}
+.hosting-editor form{display:grid;gap:16px}.hosting-editor h2{margin-bottom:3px}
+.hosting-vertex-fields,.hosting-editor #hosting-vertex-fields{display:grid;gap:16px}
+.hosting-key-actions{display:flex;gap:18px}.hosting-actions{display:flex;justify-content:space-between;margin-top:6px;gap:12px}
+#hosting-model-area{border-top:1px solid var(--line);margin-top:24px;padding-top:24px}
+.hosting-manual{display:flex;gap:10px;margin-bottom:16px}.hosting-manual input{flex:1}
+#hosting-model-candidates{max-height:260px;overflow:auto;margin-top:10px}
+.hosting-model-option{display:flex;align-items:center;flex-direction:row;gap:12px;padding:8px 0;border-bottom:1px solid var(--line);font-size:14px}
+.hosting-model-option input{width:17px;height:17px;accent-color:var(--accent)}
+#hosting-add-selected{margin-top:14px}
+.hosting-added-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 0;border-bottom:1px solid var(--line)}
+.hosting-added-row code{overflow-wrap:anywhere}.hosting-added-row button{flex-shrink:0}
+@media(max-width:950px){.hosting-workspace{grid-template-columns:1fr}}
+@media(prefers-reduced-motion:reduce){.hosting-account{transition:none}}
+
+/* Model routing uses the same subdued cards and button motion as the key manager. */
+#hosting-routes-panel{margin-top:19px}
+.hosting-route-group{border-top:1px solid var(--line);padding:14px 0}
+.hosting-route-group summary{font-size:14px;font-weight:600;cursor:pointer;overflow-wrap:anywhere}
+.hosting-route-row{display:grid;grid-template-columns:26px minmax(100px,1fr) auto;align-items:center;gap:12px;padding:11px 3px;border-bottom:1px solid var(--line)}
+.hosting-route-row strong{font-size:14px;overflow-wrap:anywhere}
+.hosting-route-rank{color:var(--accent);font-size:16px}
+.hosting-route-actions{display:flex;gap:8px}
+.hosting-route-actions .secondary{padding:7px 12px}
+.alias-summary{white-space:pre-line}
+
+/* Hosting workspace: account selection, credentials and model catalog. */
+.hosting-toolbar{margin-bottom:22px}.hosting-toolbar .tabs{padding:4px}
+.hosting-workspace{grid-template-columns:210px minmax(280px,.9fr) minmax(290px,1fr);gap:18px;align-items:stretch}
+.hosting-workspace>.panel{margin:0;min-width:0;padding:22px}
+.hosting-workspace:has(#hosting-model-area[hidden]){grid-template-columns:230px minmax(320px,620px)}
+.hosting-list{padding:10px!important;min-height:420px}.hosting-account{padding:15px 12px;gap:10px;border:1px solid transparent;margin-bottom:6px}
+.hosting-account.active{background:var(--hover);border-color:var(--line);box-shadow:inset 3px 0 var(--accent)}
+.hosting-account>div{min-width:0}.hosting-account strong{overflow-wrap:anywhere;font-size:15px}.hosting-account img{height:24px;width:24px;flex-shrink:0}
+.hosting-account .account-state{font-size:12px;white-space:nowrap}.hosting-editor form{gap:20px;height:100%}.hosting-editor label{gap:8px}
+.hosting-editor input:not([type=checkbox]),.hosting-editor select,.hosting-model-panel input{min-height:40px;width:100%;min-width:0}
+.hosting-editor h2{margin-bottom:2px}.hosting-key-actions{gap:16px;margin-top:-12px}.hosting-key-actions button{font-size:13px}
+.hosting-actions{margin-top:auto;padding-top:20px;border-top:1px solid var(--line);justify-content:flex-end;align-items:center}
+.hosting-actions .danger-text{margin-right:auto;background:transparent;border-color:transparent;color:#ac6555}
+.hosting-actions .primary{min-width:112px;min-height:40px}.hosting-editor .setting-row{margin:0;padding:16px 0;border-bottom:0}
+#hosting-model-area{margin:0;padding:22px;border:1px solid var(--line);min-height:420px}
+.hosting-model-panel .section-head{gap:12px;margin-bottom:20px}.hosting-model-panel .secondary{min-height:38px;white-space:nowrap}
+.hosting-manual{align-items:center;gap:8px;margin-bottom:12px}.hosting-manual input{width:0;min-width:0}
+#hosting-added-models{margin-top:20px;max-height:330px;overflow:auto}.hosting-added-row{padding:13px 0;font-size:13px;gap:10px}
+.hosting-added-row code{min-width:0}.hosting-added-row button{font-size:12px;padding:5px 8px}
+#hosting-routes-panel{margin-top:0;padding:24px}.hosting-route-group{margin-top:12px;padding:18px;border:1px solid var(--line);border-radius:10px;background:var(--field)}
+.hosting-route-group summary{font-size:15px}.hosting-route-row{padding:16px 0}.hosting-route-row:last-child{border-bottom:0}
+.chart-toolbar{align-items:flex-start;margin-bottom:36px}.chart-toolbar label{order:2;min-width:160px}.chart-toolbar #chart-total{order:1;font-size:32px;font-weight:600;color:var(--accent);font-variant-numeric:tabular-nums}
+.chart-bars{border-bottom:1px solid var(--line);padding:12px 0 0;gap:8px;min-height:260px;overflow-x:auto}
+.chart-cell{min-width:18px}.chart-cell .chart-number{font-size:12px;opacity:0;transition:opacity 160ms}.chart-cell:hover .chart-number{opacity:1}
+.chart-cell .chart-label{font-size:12px}.chart-column{border-radius:4px 4px 0 0;opacity:.75}.chart-column-wrap{max-width:36px}
+.chart-total-label{display:block;font-size:15px;color:var(--ink);font-weight:500;margin-bottom:8px}.chart-toolbar #chart-total strong{display:block;font-size:36px;line-height:1.2}.chart-toolbar{border:0;padding:12px 0 0}.chart-bars{padding-bottom:12px}
+@media(max-width:1240px){.hosting-workspace{grid-template-columns:220px minmax(300px,1fr)}#hosting-model-area{grid-column:1/-1;min-height:240px}.hosting-model-panel #hosting-added-models{max-height:240px}.hosting-workspace>.panel{padding:24px}}
+@media(max-width:1000px){.hosting-workspace,.hosting-workspace:has(#hosting-model-area[hidden]){grid-template-columns:190px minmax(280px,1fr)}.hosting-account{flex-wrap:wrap}.hosting-account .account-state{margin-left:34px}}

@@ -14,6 +14,7 @@
     <button class="nav" data-page="keys"><span data-icon="lock"></span>密钥</button>
     <button class="nav" data-page="catalog"><span data-icon="models"></span>模型</button>
     <button class="nav" data-page="records"><span data-icon="file"></span>记录</button>
+    <button class="nav" data-page="hosting"><span data-icon="globe"></span>托管</button>
     <button class="nav" data-page="settings"><span data-icon="settings"></span>设置</button>
   </nav>
   <div class="sidebar-foot"><span class="tiny-dot"></span>本机运行<small id="version">v0.1.6</small></div>
@@ -51,10 +52,45 @@
     <div class="panel"><div class="section-head"><div class="tabs" id="protocol-tabs"><button class="active" data-tab="openai">OpenAI</button><button data-tab="anthropic">Anthropic</button><button data-tab="google">Google</button></div><button class="text-button" id="copy-example"><span data-icon="copy"></span>复制</button></div><label class="model-label">模型<input id="example-model" placeholder="填写代理中的模型 ID" spellcheck="false"></label><pre id="example-code"></pre><p class="note">将 YOUR_ACCESS_KEY 替换为卷桥访问密钥。模型 ID 可从本地服务检测结果中选择。</p><div id="models" class="model-list"></div></div>
     <div class="panel compact"><span data-icon="lock"></span><p>外部客户端使用 HTTPS。管理面板、OAuth 与配置接口不会公开。</p></div>
   </section>
-  <section id="page-records" class="page" hidden><div class="section-head"><div class="tabs" id="record-tabs"><button class="active" data-record-tab="requests">请求</button><button data-record-tab="tunnel">隧道</button></div><div class="record-actions"><button id="export-records" class="secondary">导出记录</button><button id="clear-records" class="text-button">清空</button></div></div><div id="record-key-filters" class="record-filters"><label>密钥范围<select id="record-filter-mode"><option value="all">全部</option><option value="single">单个密钥</option><option value="multiple">多个密钥</option></select></label><label id="record-single-field" hidden>选择密钥<select id="record-key-single"></select></label><details id="record-multiple-field" hidden><summary id="record-selection-summary">选择密钥</summary><div id="record-key-choices" class="record-key-choices"></div></details><label>保留数量<select id="record-limit"><option value="200">200 条</option><option value="1000">1,000 条</option><option value="5000">5,000 条</option><option value="10000">10,000 条</option><option value="custom">自定义</option></select></label><form id="record-limit-form" hidden><label class="sr-only" for="record-limit-custom">记录数量</label><input id="record-limit-custom" type="number" min="100" max="10000" step="1" required><button type="submit" class="secondary">确定</button></form><span id="record-filter-count" class="note" aria-live="polite"></span></div><div class="panel records-panel"><div id="requests-table"></div><div id="tunnel-logs" hidden></div></div><div id="record-pagination" class="record-pagination" hidden><button id="record-prev" class="secondary">上一页</button><span id="record-page-label"></span><button id="record-next" class="secondary">下一页</button></div><p id="record-note" class="note"></p></section>
+  <section id="page-records" class="page" hidden><div class="section-head"><div class="tabs" id="record-tabs"><button class="active" data-record-tab="requests">请求</button><button data-record-tab="tunnel">隧道</button><button data-record-tab="chart">图表</button></div><div class="record-actions"><button id="export-records" class="secondary">导出记录</button><button id="clear-records" class="text-button">清空</button></div></div><div id="record-key-filters" class="record-filters"><label>密钥范围<select id="record-filter-mode"><option value="all">全部</option><option value="single">单个密钥</option><option value="multiple">多个密钥</option></select></label><label id="record-single-field" hidden>选择密钥<select id="record-key-single"></select></label><details id="record-multiple-field" hidden><summary id="record-selection-summary">选择密钥</summary><div id="record-key-choices" class="record-key-choices"></div></details><label>保留数量<select id="record-limit"><option value="200">200 条</option><option value="1000">1,000 条</option><option value="5000">5,000 条</option><option value="10000">10,000 条</option><option value="custom">自定义</option></select></label><form id="record-limit-form" hidden><label class="sr-only" for="record-limit-custom">记录数量</label><input id="record-limit-custom" type="number" min="100" max="10000" step="1" required><button type="submit" class="secondary">确定</button></form><span id="record-filter-count" class="note" aria-live="polite"></span></div><div class="panel records-panel"><div id="requests-table"></div><div id="tunnel-logs" hidden></div><div id="call-chart-view" hidden><div class="chart-toolbar"><label>时间范围<select id="chart-range"><option value="3h">三小时内</option><option value="6h">六小时内</option><option value="24h">二十四小时内</option><option value="today">当天</option><option value="7d">一周内</option><option value="30d">一月内</option></select></label><div id="chart-total" aria-live="polite">调用次数 0</div></div><div id="chart-bars" class="chart-bars" role="img" aria-label="按时间统计的模型调用量柱状图"></div></div></div><div id="record-pagination" class="record-pagination" hidden><button id="record-prev" class="secondary">上一页</button><span id="record-page-label"></span><button id="record-next" class="secondary">下一页</button></div><p id="record-note" class="note"></p></section>
   <section id="page-catalog" class="page" hidden>
-    <div class="panel"><div class="section-head"><div><h2>本地模型</h2><div id="catalog-summary" class="note">尚未获取</div></div><button id="refresh-models" class="secondary"><span data-icon="download"></span>从代理获取</button></div><input id="model-search" type="search" placeholder="搜索模型" aria-label="搜索模型" spellcheck="false"><div id="catalog-list" class="catalog-list"></div></div>
+    <div class="panel"><div class="section-head"><div><h2>模型列表</h2><div id="catalog-summary" class="note">尚未获取</div></div><button id="refresh-models" class="secondary"><span data-icon="download"></span>从代理获取</button></div><input id="model-search" type="search" placeholder="搜索模型" aria-label="搜索模型" spellcheck="false"><div id="catalog-list" class="catalog-list"></div><div id="hosted-catalog-list" class="catalog-list"></div></div>
     <p class="note">开关自动保存，对后续外部请求立即生效。关闭的模型会从外部列表隐藏，直接调用也会被拒绝。首次获取和新发现的模型默认开放。</p>
+  </section>
+
+  <section id="page-hosting" class="page" hidden>
+    <div class="section-head hosting-toolbar"><div class="tabs" id="hosting-tabs"><button class="active" data-hosting-tab="keys">密钥管理</button><button data-hosting-tab="routes">同名模型路由</button></div><button id="hosting-add" class="primary"><span data-icon="plus"></span>添加密钥</button></div>
+    <div class="hosting-workspace" id="hosting-keys-view">
+      <div class="panel hosting-list" id="hosting-list"><div class="empty">尚未添加托管密钥</div></div>
+      <div class="panel hosting-editor" id="hosting-editor">
+        <form id="hosting-form">
+          <h2 id="hosting-title">添加密钥</h2>
+          <label>名称<input id="hosting-name" maxlength="80" required autocomplete="off" placeholder="自定义账号名称"></label>
+          <label>协议<select id="hosting-protocol"><option value="openai">OpenAI</option><option value="anthropic">Anthropic</option><option value="google">Google</option><option value="vertex">Vertex AI</option></select></label>
+          <label>API 地址<input id="hosting-url" spellcheck="false" required></label>
+          <div id="hosting-vertex-fields" hidden>
+            <label>Project ID<input id="hosting-project" spellcheck="false" placeholder="Google Cloud 项目 ID"></label>
+            <label>Location<input id="hosting-location" spellcheck="false" value="global"></label>
+          </div>
+          <label>API Key<input id="hosting-key" type="password" autocomplete="off" spellcheck="false" placeholder="输入或更新上游密钥"></label>
+          <div class="hosting-key-actions"><button type="button" id="hosting-reveal" class="text-button">显示密钥</button><button type="button" id="hosting-copy" class="text-button">复制密钥</button></div>
+          <div class="setting-row"><strong>启用此密钥</strong><input id="hosting-enabled" type="checkbox" role="switch" checked></div>
+          <div class="hosting-actions"><button type="button" id="hosting-delete" class="secondary danger-text" hidden>删除密钥</button><button type="submit" class="primary small">保存密钥</button></div>
+        </form>
+      </div>
+        <div class="panel hosting-model-panel" id="hosting-model-area" hidden>
+          <div class="section-head"><h2>模型</h2><button id="hosting-refresh" class="secondary">获取模型</button></div>
+          <div class="hosting-manual"><input id="hosting-manual-id" spellcheck="false" placeholder="也可以手动填写模型 ID"><button id="hosting-manual-add" class="secondary">添加</button></div>
+          <input id="hosting-model-search" type="search" placeholder="搜索可用模型" aria-label="搜索可用模型">
+          <div id="hosting-model-candidates"></div>
+          <button id="hosting-add-selected" class="primary small" hidden>添加所选模型</button>
+          <div id="hosting-added-models"></div>
+        </div>
+    </div>
+    <div class="panel" id="hosting-routes-panel" hidden>
+      <div class="section-head"><h2>同名模型路由</h2></div>
+      <div id="hosting-route-groups"><div class="empty">暂无相同模型的多个来源</div></div>
+    </div>
   </section>
   <section id="page-settings" class="page" hidden>
     <div class="panel"><h2>外观</h2><div class="theme-options"><button data-theme="light"><span class="theme-preview light-preview"></span>浅色</button><button data-theme="dark"><span class="theme-preview dark-preview"></span>深色</button><button data-theme="system"><span class="theme-preview system-preview"></span>跟随系统</button></div></div>
@@ -64,6 +100,10 @@
       <div class="update-actions"><button id="check-update" class="secondary">检测更新</button><button id="github-project" class="secondary">GitHub 开源项目<span data-icon="external"></span></button><button id="download-update" class="primary" hidden>下载并更新</button></div>
       <details id="update-notes" hidden><summary>更新日志<span class="update-notes-toggle"></span></summary><strong id="update-notes-version"></strong><p id="update-published"></p><div id="update-notes-body"></div></details>
       <div id="update-progress-row" hidden><div class="update-progress-head"><span>正在下载更新</span><span id="update-percent"></span></div><progress id="update-progress" max="100" value="0" aria-label="下载进度"></progress><div class="update-progress-meta"><span id="update-bytes"></span><span id="update-speed"></span></div></div>
+    </div>
+    <div class="panel" id="routing-settings"><h2>模型路由</h2>
+      <div class="setting-row"><div><strong>显示模型来源</strong><p>在模型列表显示托管密钥名称或本地代理</p></div><input type="checkbox" role="switch" id="showModelSources" aria-label="显示模型来源"></div>
+      <div class="setting-row"><div><strong>同名模型统一路由</strong><p>相同模型共用对外 ID，按来源优先级请求</p></div><input type="checkbox" role="switch" id="unifiedModelRouting" aria-label="同名模型统一路由"></div>
     </div>
     <div class="panel"><h2>连接</h2><div class="setting-row"><div><strong>隧道传输</strong><p>自动选择；网络限制 UDP 时可使用 HTTP/2</p></div><select id="transport"><option value="auto">自动</option><option value="http2">HTTP/2</option><option value="quic">QUIC</option></select></div><div class="setting-row"><div><strong>开机启动</strong><p id="startup-status">登录 Windows 后打开应用，连接需手动启动</p></div><input id="launchAtLogin" type="checkbox" role="switch" aria-label="开机启动"></div><div class="setting-row"><div><strong>显示请求IP</strong><p>仅控制列表显示；关闭后仍在本次运行中记录 IP</p></div><input id="recordRequestIP" type="checkbox" role="switch" aria-label="显示请求IP"></div><div class="setting-row"><div><strong>显示请求体</strong><p>关闭后仍采集有限预览，仅在本次运行中保留</p></div><input id="showRequestBody" type="checkbox" role="switch" aria-label="显示请求体"></div><div class="setting-row"><div><strong>IP 黑名单</strong><p id="ip-blacklist-summary">暂无黑名单</p></div><button id="manage-blacklist" class="secondary">管理黑名单</button></div></div>
     <div class="panel"><h2>模型列表</h2><div class="setting-row"><div><strong>启动时自动刷新模型列表</strong></div><input id="refreshModelsOnStartup" type="checkbox" role="switch" aria-label="启动时自动刷新模型列表"></div><div class="setting-row"><div><strong>定时刷新</strong><p>刷新失败时保留现有列表</p></div><select id="model-refresh-mode" aria-label="定时刷新"><option value="off">不刷新</option><option value="interval">按时间刷新</option></select></div><form id="model-refresh-form" class="refresh-interval" hidden><label>刷新间隔（分钟）<input id="modelRefreshMinutes" type="number" min="1" max="10080" step="1" required value="30"></label><button type="submit" class="secondary">保存</button></form></div>
@@ -89,5 +129,5 @@
 <dialog id="export-records-dialog"><form id="export-records-form"><h2>导出记录</h2><label>范围<select id="export-scope"><option value="filtered">当前筛选结果</option><option value="all">全部已保留记录</option></select></label><label>格式<select id="export-format"><option value="csv">CSV</option><option value="json">JSON</option></select></label><div class="dialog-actions"><button id="cancel-export" type="button" class="secondary">取消</button><button type="submit" class="primary">导出</button></div></form></dialog>
 <dialog id="request-body-dialog"><div class="section-head"><h2>请求体</h2><button id="close-request-body" class="text-button">关闭</button></div><p id="request-body-meta" class="note"></p><pre id="request-body-content" tabindex="0"></pre><p class="note">仅显示最多 16 KiB 的预览，不包含请求头或 URL 查询参数；可能含有提示词或其他敏感信息。</p></dialog>
 <div id="request-ip-menu" popover="auto"><button id="copy-request-ip" type="button">复制 IP</button><button id="block-request-ip" type="button">加入黑名单</button></div>
-<script src="records.js"></script><script src="app.js"></script>
+<script src="records.js"></script><script src="charts.js"></script><script src="hosting.js"></script><script src="app.js"></script>
 </body></html>

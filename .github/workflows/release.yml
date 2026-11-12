@@ -43,6 +43,10 @@ jobs:
       - run: npm run dist
         env:
           SCROLLBRIDGE_UPDATE_SIGNING_KEY: ${{ secrets.SCROLLBRIDGE_UPDATE_SIGNING_KEY }}
+      - name: Verify hosting UI, same-model routing controls and recorded chart
+        run: node scripts/hosting-smoke.cjs
+      - name: Verify model catalog including hosting navigation
+        run: node scripts/models-smoke.cjs
       - name: Verify Windows update replacement and rollback
         run: node scripts/update-worker-smoke.cjs
       - name: Verify Windows startup registration and desktop failure handling

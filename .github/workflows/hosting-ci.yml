@@ -1,0 +1,52 @@
+name: Test desktop and Go gateway
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  node:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm run check
+      - run: npm test
+  go:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: beta/go-gateway/go.mod
+          cache-dependency-path: beta/go-gateway/go.sum
+      - run: go test ./...
+        working-directory: beta/go-gateway
+  windows-ui:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: beta/go-gateway/go.mod
+          cache-dependency-path: beta/go-gateway/go.sum
+      - run: npm ci
+      - run: npm run vendor
+      - run: npm run test:go
+      - run: node scripts/models-smoke.cjs
+      - run: node scripts/hosting-smoke.cjs
