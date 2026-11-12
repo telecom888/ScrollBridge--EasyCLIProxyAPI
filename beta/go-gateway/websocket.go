@@ -54,7 +54,15 @@ func (g *gateway) serveWebSocket(w http.ResponseWriter, r *http.Request, s *snap
 			return
 		}
 	}
-	supply, finish, ok := g.pool.pick(s.cfg.Upstreams)
+	selectedUpstreams := s.cfg.Upstreams
+	if selected.UpstreamID != "" {
+		selectedUpstreams = nil
+		for _, candidate := range s.cfg.Upstreams { if candidate.ID == selected.UpstreamID && candidate.Protocol == "local" {selectedUpstreams = append(selectedUpstreams,candidate)} }
+	} else {
+		selectedUpstreams = nil
+		for _, candidate := range s.cfg.Upstreams { if candidate.Protocol == "" || candidate.Protocol == "local" {selectedUpstreams = append(selectedUpstreams,candidate)} }
+	}
+	supply, finish, ok := g.pool.pick(selectedUpstreams)
 	if !ok {
 		problem(w, 503, "all upstreams cooling down")
 		return

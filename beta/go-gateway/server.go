@@ -218,7 +218,7 @@ func strip(h http.Header, request bool) {
 		n := strings.ToLower(k)
 		bad := n == "connection" || n == "keep-alive" || n == "proxy-authenticate" || n == "proxy-authorization" || n == "te" || n == "trailer" || n == "transfer-encoding" || n == "upgrade" || n == "set-cookie" || strings.HasPrefix(n, "access-control-")
 		if request {
-			bad = bad || n == "authorization" || n == "x-api-key" || n == "x-goog-api-key" || n == "cookie" || n == "forwarded" || n == "origin" || n == "referer" || n == "accept-encoding" || strings.HasPrefix(n, "cf-") || strings.HasPrefix(n, "x-forwarded-")
+			bad = bad || n == "authorization" || n == "x-api-key" || n == "x-goog-api-key" || n == "cookie" || n == "x-scrollbridge-hosting-provider" || n == "forwarded" || n == "origin" || n == "referer" || n == "accept-encoding" || strings.HasPrefix(n, "cf-") || strings.HasPrefix(n, "x-forwarded-")
 		}
 		if bad {
 			h.Del(k)
@@ -558,13 +558,21 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		reject(400, "cannot encode request")
 		return
 	}
-	supply, done, available := g.pool.pick(s.cfg.Upstreams)
+	availableUpstreams := s.cfg.Upstreams
+	if e.UpstreamID != "" {
+		availableUpstreams = nil
+		for _, candidate := range s.cfg.Upstreams {
+			if candidate.ID == e.UpstreamID { availableUpstreams = append(availableUpstreams, candidate) }
+		}
+	}
+	supply, done, available := g.pool.pick(availableUpstreams)
 	if !available {
 		result = "supply_unavailable"
 		reject(503, "all upstreams cooling down")
 		return
 	}
 	upID = supply.ID
+	if r.URL.Path == "/v1/audio/speech" && e.UpstreamID != "" && e.UpstreamID != "local-proxy" {done(400,nil,nil);reject(400,"Hosted speech is not supported");return}
 	if r.URL.Path == "/v1/audio/speech" {
 		dispatched = true
 		speechStatus, started, speechErr := g.serveSpeech(ctx, s, supply, w, m, e, &u)
@@ -630,6 +638,7 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	req.Header = r.Header.Clone()
 	strip(req.Header, true)
+	if e.UpstreamID != "" && e.UpstreamID != "local-proxy" { req.Header.Set("X-ScrollBridge-Hosting-Provider", e.UpstreamID) }
 	req.Header.Del("Content-Length")
 	req.Header.Del("Content-Encoding")
 	if outEncoding != "" {
