@@ -39,3 +39,24 @@ test('AES uses fresh nonces and rejects damaged files without replacing credenti
  const f=fixture(t);f.store.load();const data=JSON.parse(fs.readFileSync(f.file)),blob=Buffer.from(data.secrets,'base64');blob[32]^=1;data.secrets=blob.toString('base64');fs.writeFileSync(f.file,JSON.stringify(data));const before=fs.readFileSync(f.file);
  assert.throws(()=>new Store(f.dir).load(),/解密失败/);assert.deepEqual(fs.readFileSync(f.file),before);
 });
+
+test('version 3 configuration upgrades on first save without changing existing credentials', t => {
+ const f=fixture(t),created=f.store.load();
+ const legacyConfig={...created.config},legacySecrets={...created.secrets};
+ for(const key of ['hostingProviders','hostingModels','showModelSources','unifiedModelRouting'])delete legacyConfig[key];
+ delete legacySecrets.hostingKeys;
+ const version3=JSON.stringify({version:3,config:legacyConfig,secrets:encryptSecrets(JSON.stringify(legacySecrets))});
+ fs.writeFileSync(f.file,version3);
+ const loaded=new Store(f.dir).load();
+ assert.equal(fs.readFileSync(f.file,'utf8'),version3,'reading v3 does not rewrite the file');
+ assert.deepEqual(loaded.config.hostingProviders,[]);
+ assert.deepEqual(loaded.config.hostingModels,[]);
+ assert.deepEqual(loaded.secrets.hostingKeys,{});
+ assert.deepEqual(loaded.secrets.keyValues,legacySecrets.keyValues);
+ assert.equal(loaded.secrets.upstreamKey,legacySecrets.upstreamKey);
+ const writer=new Store(f.dir);writer.load();writer.save({...loaded.config,theme:'dark'},loaded.secrets);
+ const upgraded=JSON.parse(fs.readFileSync(f.file,'utf8'));
+ assert.equal(upgraded.version,4);
+ assert.deepEqual(new Store(f.dir).load().secrets.keyValues,legacySecrets.keyValues);
+ assert.equal(new Store(f.dir).load().config.theme,'dark');
+});
