@@ -53,11 +53,12 @@ function renderHostingCandidates(){
  for(const name of hostingCandidates.filter(m=>m.toLowerCase().includes(search))){
    const l=document.createElement('label');l.className='hosting-model-option';
    const c=document.createElement('input');c.type='checkbox';c.value=name;c.checked=hostingChosen.has(name);
-   c.onchange=()=>{if(c.checked)hostingChosen.add(name);else hostingChosen.delete(name);$('hosting-add-selected').hidden=!hostingChosen.size;};
+   c.onchange=()=>{if(c.checked)hostingChosen.add(name);else hostingChosen.delete(name);updateHostingSelection();};
    const text=document.createElement('span');text.textContent=name;l.append(c,text);el.append(l);
  }
- $('hosting-add-selected').hidden=!hostingChosen.size;
+ updateHostingSelection();
 }
+function updateHostingSelection(){const button=$('hosting-add-selected');button.hidden=!hostingChosen.size;button.textContent=`添加所选模型（${hostingChosen.size}）`;}
 function initHosting(){
  const switchTab=name=>{for(const button of document.querySelectorAll('[data-hosting-tab]'))button.classList.toggle('active',button.dataset.hostingTab===name);$('hosting-keys-view').hidden=name!=='keys';$('hosting-routes-panel').hidden=name!=='routes';};
  for(const button of document.querySelectorAll('[data-hosting-tab]'))button.onclick=()=>{switchTab(button.dataset.hostingTab);reveal(button.dataset.hostingTab==='keys'?$('hosting-keys-view'):$('hosting-routes-panel'));};

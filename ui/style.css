@@ -287,8 +287,10 @@ dialog[data-overlay-phase=closing]{pointer-events:none}
 #hosting-model-area{border-top:1px solid var(--line);margin-top:24px;padding-top:24px}
 .hosting-manual{display:flex;gap:10px;margin-bottom:16px}.hosting-manual input{flex:1}
 #hosting-model-candidates{max-height:260px;overflow:auto;margin-top:10px}
-.hosting-model-option{display:flex;align-items:center;flex-direction:row;gap:12px;padding:8px 0;border-bottom:1px solid var(--line);font-size:14px}
-.hosting-model-option input{width:17px;height:17px;accent-color:var(--accent)}
+.hosting-model-option{display:grid;grid-template-columns:18px minmax(0,1fr);align-items:start;gap:12px;padding:12px 10px;border-bottom:1px solid var(--line);font-size:14px;line-height:1.6;text-align:left;cursor:pointer;border-radius:6px}
+.hosting-model-option input[type=checkbox]{width:18px;height:18px;min-height:18px;margin:2px 0 0;accent-color:var(--accent);justify-self:start}
+.hosting-model-option>span{min-width:0;overflow-wrap:anywhere;text-align:left;user-select:text}
+.hosting-model-option:hover,.hosting-model-option:has(input:checked){background:var(--hover)}
 #hosting-add-selected{margin-top:14px}
 .hosting-added-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 0;border-bottom:1px solid var(--line)}
 .hosting-added-row code{overflow-wrap:anywhere}.hosting-added-row button{flex-shrink:0}
@@ -315,7 +317,7 @@ dialog[data-overlay-phase=closing]{pointer-events:none}
 .hosting-account.active{background:var(--hover);border-color:var(--line);box-shadow:inset 3px 0 var(--accent)}
 .hosting-account>div{min-width:0}.hosting-account strong{overflow-wrap:anywhere;font-size:15px}.hosting-account img{height:24px;width:24px;flex-shrink:0}
 .hosting-account .account-state{font-size:12px;white-space:nowrap}.hosting-editor form{gap:20px;height:100%}.hosting-editor label{gap:8px}
-.hosting-editor input:not([type=checkbox]),.hosting-editor select,.hosting-model-panel input{min-height:40px;width:100%;min-width:0}
+.hosting-editor input:not([type=checkbox]),.hosting-editor select,.hosting-model-panel input:not([type=checkbox]){min-height:40px;width:100%;min-width:0}
 .hosting-editor h2{margin-bottom:2px}.hosting-key-actions{gap:16px;margin-top:-12px}.hosting-key-actions button{font-size:13px}
 .hosting-actions{margin-top:auto;padding-top:20px;border-top:1px solid var(--line);justify-content:flex-end;align-items:center}
 .hosting-actions .danger-text{margin-right:auto;background:transparent;border-color:transparent;color:#ac6555}
