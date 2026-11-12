@@ -44,12 +44,22 @@ test('routing order can place second key ahead of first while preserving source 
  assert.throws(()=>validateConfig({...base,hostingRouteOrders:{'gemini-test':['model-a','model-a']}}),/路由/);
  assert.throws(()=>validateConfig({...base,hostingRouteOrders:{'gemini-test':['model-other']}}),/路由/);
 });
-test('official HTTPS upstreams only, duplicated model per same account blocked',()=>{
+test('custom HTTP/HTTPS upstreams accepted and duplicate models still blocked',()=>{
  const base=data();
- assert.throws(()=>validateConfig({...base,hostingProviders:[{...p('aaa'),baseUrl:'http://localhost:8080'}]}),/HTTPS/);
- assert.throws(()=>validateConfig({...base,hostingProviders:[{...p('aaa'),baseUrl:'https://evil.example.com'}]}),/供应商/);
+ for(const baseUrl of ['http://localhost:8080','https://compatible.example.com/proxy/v1beta'])assert.equal(validateConfig({...base,hostingProviders:[{...p('aaa'),baseUrl},p('bbb')]}).hostingProviders[0].baseUrl,baseUrl);
+ for(const baseUrl of ['file:///tmp/test','https://name:secret@example.com','https://example.com/?key=secret'])assert.throws(()=>validateConfig({...base,hostingProviders:[{...p('aaa'),baseUrl},p('bbb')]}),/HTTP|凭据/);
  assert.throws(()=>validateConfig({...base,hostingModels:[m('a','aaa'),m('b','aaa')]}),/重复/);
  assert.ok(publicModelId('aaa','gemini-test').startsWith('host-'));
+});
+test('custom paths and ports are preserved for discovery and generation',async()=>{
+ for(const [protocol,baseUrl,path] of [['openai','https://compat.example:8443/proxy/v1','/proxy/v1/chat/completions'],['anthropic','http://127.0.0.1:8080/tenant','/tenant/v1/messages'],['google','https://compat.example/google/v1beta','/google/v1beta/models/gemini-test:streamGenerateContent'],['vertex','https://compat.example/google/v1','/google/v1/projects/demo-project/locations/global/publishers/google/models/gemini-test:streamGenerateContent']]){
+  const provider={...p('custom'),protocol,baseUrl,projectId:'demo-project',location:'global'};
+  const plan=build(provider,'gemini-test','openai',{messages:[{role:'user',content:'test'}]},true);
+  assert.equal(plan.url.pathname,path);assert.equal(plan.url.host,new URL(baseUrl).host);
+  const seen=[];await fetchHostingModels(provider,'fixture',{oauthToken:'fixture-oauth',fetcher:async url=>{seen.push(new URL(url));return Response.json({data:[],models:[],publisherModels:[]});}});
+  assert.equal(seen[0].host,new URL(baseUrl).host);assert.ok(!seen[0].pathname.includes('/v1/v1'));
+  assert.ok(seen[0].pathname.startsWith(new URL(baseUrl).pathname.replace(/\/v\d+(?:beta\d*)?$/,'')));
+ }
 });
 test('model fetching decodes four provider catalogs with pagination and credentials',async()=>{
  const fixture=(data,probe)=>async(url,opts)=>{probe.push({url,headers:opts.headers});return {ok:true,json:async()=>data};};

@@ -62,7 +62,7 @@ function initHosting(){
  const switchTab=name=>{for(const button of document.querySelectorAll('[data-hosting-tab]'))button.classList.toggle('active',button.dataset.hostingTab===name);$('hosting-keys-view').hidden=name!=='keys';$('hosting-routes-panel').hidden=name!=='routes';};
  for(const button of document.querySelectorAll('[data-hosting-tab]'))button.onclick=()=>{switchTab(button.dataset.hostingTab);reveal(button.dataset.hostingTab==='keys'?$('hosting-keys-view'):$('hosting-routes-panel'));};
  $('hosting-add').onclick=()=>{switchTab('keys');hostingSelection=null;resetHostingForm(null);renderHosting();$('hosting-name').focus();};
- $('hosting-protocol').onchange=()=>{$('hosting-vertex-fields').hidden=$('hosting-protocol').value!=='vertex';$('hosting-url').value=hostingDefaults[$('hosting-protocol').value];};
+ $('hosting-protocol').onchange=()=>{$('hosting-vertex-fields').hidden=$('hosting-protocol').value!=='vertex';if(Object.values(hostingDefaults).includes($('hosting-url').value)||!$('hosting-url').value.trim())$('hosting-url').value=hostingDefaults[$('hosting-protocol').value];};
  $('hosting-form').onsubmit=e=>{e.preventDefault();task(e.submitter,async()=>{
    const payload={id:hostingSelection,name:$('hosting-name').value,protocol:$('hosting-protocol').value,baseUrl:$('hosting-url').value,
      projectId:$('hosting-project').value,location:$('hosting-location').value,enabled:$('hosting-enabled').checked,key:$('hosting-key').value};

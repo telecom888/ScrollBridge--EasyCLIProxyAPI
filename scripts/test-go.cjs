@@ -4,3 +4,4 @@ const root=path.resolve(__dirname,'..'),options={cwd:root,stdio:'inherit',window
 execFileSync('go',['test','./...'],{...options,cwd:path.join(root,'beta','go-gateway')});
 execFileSync(process.execPath,['scripts/build-desktop.cjs','core'],options);
 execFileSync(process.execPath,['--test','tests/multi-key.test.cjs'],{...options,env:{...process.env,SCROLLBRIDGE_TEST_ENGINE:'go'}});
+execFileSync(process.execPath,['scripts/hosted-gateway-smoke.cjs'],options);
