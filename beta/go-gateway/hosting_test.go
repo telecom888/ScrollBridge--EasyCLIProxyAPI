@@ -60,6 +60,7 @@ func TestHostingSameModelPriorityAndFailover(t *testing.T){
  if code!=200||first.Load()!=1||second.Load()!=2{t.Fatal("source priority was not applied")}
 }
 func TestHostingGroupPermissionAndDisabledSource(t *testing.T){
+ t.Setenv("SB_TEST_A","private-a");t.Setenv("SB_TEST_B","private-b")
  upstream:=httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){
   w.Header().Set("Content-Type","application/json")
   io.WriteString(w,`{"model":"shared-model","choices":[]}`)

@@ -329,7 +329,10 @@ func (s *snapshot) routable(k *Key, name string) ([]entry, int) {
 	for _, e := range candidates {
 		if e.Available && e.Enabled { usable = append(usable, e) }
 	}
-	if len(usable) == 0 { return nil, 404 }
+	if len(usable) == 0 {
+		for _, e := range candidates { if e.Available { return nil, 403 } }
+		return nil, 404
+	}
 	return usable, 0
 }
 func (s *snapshot) resolve(k *Key, name string) (entry, int) {
