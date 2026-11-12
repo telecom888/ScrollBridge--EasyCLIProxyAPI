@@ -312,15 +312,28 @@ func (s *snapshot) auth(token string) *Key {
 	}
 	return k
 }
-func (s *snapshot) resolve(k *Key, name string) (entry, int) {
+// Permissions are checked against the public model group. A permitted route
+// can fail over to another source for that same public ID, but never to a
+// different model ID.
+func (s *snapshot) routable(k *Key, name string) ([]entry, int) {
 	candidates := s.routes[normalized(name)]
-	if len(candidates) == 0 { return entry{}, 404 }
-	seenAvailable := false
-	for _, e := range candidates {
-		if !e.Available { continue }
-		seenAvailable = true
-		if e.Enabled && (k.Mode != "selected" || s.grants[k.ID][e.ID]) { return e, 0 }
+	if len(candidates) == 0 { return nil, 404 }
+	allowed := k.Mode == "all"
+	if !allowed {
+		for _, e := range candidates {
+			if s.grants[k.ID][e.ID] { allowed = true; break }
+		}
 	}
-	if seenAvailable { return candidates[0], 403 }
-	return candidates[0], 404
+	if !allowed { return nil, 403 }
+	usable := make([]entry, 0, len(candidates))
+	for _, e := range candidates {
+		if e.Available && e.Enabled { usable = append(usable, e) }
+	}
+	if len(usable) == 0 { return nil, 404 }
+	return usable, 0
+}
+func (s *snapshot) resolve(k *Key, name string) (entry, int) {
+	candidates,code:=s.routable(k,name)
+	if code != 0 { return entry{},code }
+	return candidates[0],0
 }

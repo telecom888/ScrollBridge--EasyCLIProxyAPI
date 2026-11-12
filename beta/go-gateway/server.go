@@ -558,20 +558,32 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		reject(400, "cannot encode request")
 		return
 	}
-	availableUpstreams := s.cfg.Upstreams
-	if e.UpstreamID != "" {
-		availableUpstreams = nil
-		for _, candidate := range s.cfg.Upstreams {
-			if candidate.ID == e.UpstreamID { availableUpstreams = append(availableUpstreams, candidate) }
+	// Source priority is compiled with the model rules, independent of the
+	// shared load-balancing pool. Never select an unrelated provider.
+	candidates, _ := s.routable(k, requested)
+	var supply Upstream
+	var done func(int, http.Header, error)
+	available := false
+	sourceIndex := 0
+	for i, candidate := range candidates {
+		selected := s.cfg.Upstreams
+		if candidate.UpstreamID != "" {
+			selected = nil
+			for _, up := range s.cfg.Upstreams {
+				if up.ID == candidate.UpstreamID { selected = append(selected, up) }
+			}
 		}
+		var ok bool
+		supply, done, ok = g.pool.pick(selected)
+		if ok { e = candidate; sourceIndex = i; available = true; break }
 	}
-	supply, done, available := g.pool.pick(availableUpstreams)
 	if !available {
 		result = "supply_unavailable"
-		reject(503, "all upstreams cooling down")
+		reject(503, "all sources unavailable")
 		return
 	}
 	upID = supply.ID
+	record["upstreamId"] = upID
 	if r.URL.Path == "/v1/audio/speech" && e.UpstreamID != "" && e.UpstreamID != "local-proxy" {done(400,nil,nil);reject(400,"Hosted speech is not supported");return}
 	if r.URL.Path == "/v1/audio/speech" {
 		dispatched = true
@@ -615,40 +627,44 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	target, _ := url.Parse(supply.URL)
-	target.Path = r.URL.Path
-	if pathModel != "" {
-		if r.Method == "GET" {
-			target.Path = strings.TrimSuffix(target.Path, pathModel) + actual
-		} else {
-			target.Path = strings.Replace(target.Path, "/models/"+pathModel+":", "/models/"+actual+":", 1)
+	// Build a fresh request for every candidate. Query credentials are stripped
+	// before forwarding, and each request uses only its selected source key.
+	makeRequest := func(source entry, selected Upstream) (*http.Request, error) {
+		target, err := url.Parse(selected.URL)
+		if err != nil { return nil, err }
+		target.Path = r.URL.Path
+		if pathModel != "" {
+			if r.Method == "GET" {
+				target.Path = strings.TrimSuffix(target.Path, pathModel) + source.Actual
+			} else {
+				target.Path = strings.Replace(target.Path, "/models/"+pathModel+":", "/models/"+source.Actual+":", 1)
+			}
 		}
+		q := r.URL.Query()
+		for _, n := range []string{"key", "api_key", "access_token"} { q.Del(n) }
+		target.RawQuery = q.Encode()
+		out, err := http.NewRequestWithContext(ctx, r.Method, target.String(), bytes.NewReader(body))
+		if err != nil { return nil, err }
+		out.Header = r.Header.Clone()
+		strip(out.Header, true)
+		if source.UpstreamID != "" && source.UpstreamID != "local-proxy" {
+			out.Header.Set("X-ScrollBridge-Hosting-Provider", source.UpstreamID)
+		}
+		out.Header.Del("Content-Length")
+		out.Header.Del("Content-Encoding")
+		if outEncoding != "" { out.Header.Set("Content-Encoding", outEncoding) }
+		if outContentType != "" { out.Header.Set("Content-Type", outContentType) }
+		out.Header.Set("Accept-Encoding", "identity")
+		supplyCredentials(out, selected)
+		return out, nil
 	}
-	q := r.URL.Query()
-	for _, n := range []string{"key", "api_key", "access_token"} {
-		q.Del(n)
-	}
-	target.RawQuery = q.Encode()
-	req, err := http.NewRequestWithContext(ctx, r.Method, target.String(), bytes.NewReader(body))
+	req, err := makeRequest(e, supply)
 	if err != nil {
 		done(0, nil, err)
 		result = "request_failed"
 		reject(502, "cannot create upstream request")
 		return
 	}
-	req.Header = r.Header.Clone()
-	strip(req.Header, true)
-	if e.UpstreamID != "" && e.UpstreamID != "local-proxy" { req.Header.Set("X-ScrollBridge-Hosting-Provider", e.UpstreamID) }
-	req.Header.Del("Content-Length")
-	req.Header.Del("Content-Encoding")
-	if outEncoding != "" {
-		req.Header.Set("Content-Encoding", outEncoding)
-	}
-	if outContentType != "" {
-		req.Header.Set("Content-Type", outContentType)
-	}
-	req.Header.Set("Accept-Encoding", "identity")
-	supplyCredentials(req, supply)
 	if ctx.Err() != nil {
 		done(499, nil, nil)
 		result = "cancelled_before_dispatch"
@@ -658,14 +674,51 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	dispatched = true
 	response, err := g.transport.RoundTrip(req)
 	if err != nil {
-		if ctx.Err() != nil {
-			done(499, nil, nil)
-		} else {
-			done(0, nil, err)
-		}
+		if ctx.Err() != nil { done(499, nil, nil) } else { done(0, nil, err) }
 		result = "upstream_failed"
 		reject(502, "upstream unavailable")
 		return
+	}
+	// Failover only after an explicit upstream HTTP error, before delivering
+	// response bytes. Never repeat a request after ambiguous transport errors
+	// or after a stream has begun. The charge may still be applied upstream.
+	canFailover := func(status int) bool {
+		return status == 401 || status == 403 || status == 404 || status == 429 || status >= 500
+	}
+	for sourceIndex+1 < len(candidates) && canFailover(response.StatusCode) && ctx.Err() == nil {
+		nextFound := false
+		var nextSupply Upstream
+		var nextDone func(int, http.Header, error)
+		var nextSource entry
+		for i := sourceIndex+1; i < len(candidates); i++ {
+			sourceIndex = i
+			candidate := candidates[i]
+			var supplies []Upstream
+			for _, up := range s.cfg.Upstreams {
+				if up.ID == candidate.UpstreamID { supplies = append(supplies, up) }
+			}
+			var ok bool
+			nextSupply, nextDone, ok = g.pool.pick(supplies)
+			if ok { nextSource = candidate; nextFound = true; break }
+		}
+		if !nextFound { break }
+		nextReq, makeErr := makeRequest(nextSource, nextSupply)
+		if makeErr != nil { nextDone(0, nil, makeErr); break }
+		// Mark the failed source before moving to the next one.
+		done(response.StatusCode, response.Header, nil)
+		response.Body.Close()
+		supply = nextSupply
+		done = nextDone
+		e = nextSource
+		upID = supply.ID
+		record["upstreamId"] = upID
+		response, err = g.transport.RoundTrip(nextReq)
+		if err != nil {
+			if ctx.Err() != nil { done(499, nil, nil) } else { done(0, nil, err) }
+			result = "upstream_failed"
+			reject(502, "upstream unavailable")
+			return
+		}
 	}
 	defer response.Body.Close()
 	status = response.StatusCode
