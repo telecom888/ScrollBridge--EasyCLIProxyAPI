@@ -1,0 +1,41 @@
+const {test}=require('node:test');
+const assert=require('node:assert/strict');
+const fs=require('node:fs'),os=require('node:os'),path=require('node:path');
+const {CallStats,buildChart,RETENTION_MS}=require('../lib/call-stats.cjs');
+function fixture(t){const dir=fs.mkdtempSync(path.join(os.tmpdir(),'scrollbridge-chart-'));t.after(()=>fs.rmSync(dir,{recursive:true,force:true}));return dir;}
+test('call chart counts only model POST requests, persists encrypted JSON and survives restart',t=>{
+ let now=new Date('2026-11-12T12:30:00').getTime();const dir=fixture(t);
+ const stats=new CallStats(dir,{now:()=>now});
+ stats.record({time:new Date(now).toISOString(),method:'POST',model:'public-model',actualModel:'real-model'});
+ stats.record({time:new Date(now-15*60000).toISOString(),method:'POST',model:'public-model',actualModel:'real-model'});
+ stats.record({time:new Date(now).toISOString(),method:'GET',model:'public-model',actualModel:'real-model'});
+ assert.equal(stats.chart('3h').total,2);
+ assert.equal(stats.chart('6h').total,2);
+ assert.equal(stats.chart('24h').total,2);
+ assert.equal(stats.chart('today').total,2);
+ assert.equal(stats.chart('7d').total,2);
+ assert.equal(stats.chart('30d').total,2);
+ stats.close();
+ const text=fs.readFileSync(path.join(dir,'call-stats.json'),'utf8');
+ assert.equal(text.includes('public-model'),false);
+ assert.equal(text.includes('real-model'),false);
+ assert.equal(text.includes('"points"'),false);
+ const restored=new CallStats(dir,{now:()=>now});
+ assert.equal(restored.chart('3h').total,2);
+ now+=RETENTION_MS+60000;
+ assert.equal(restored.chart('30d').total,0);
+ restored.close();
+ const last=new CallStats(dir,{now:()=>now});
+ assert.equal(last.chart('30d').total,0);
+ last.close();
+});
+test('invalid range and malformed persisted encrypted JSON are rejected without erasure',t=>{
+ const dir=fixture(t),stats=new CallStats(dir);
+ assert.throws(()=>stats.chart('all'),/时间范围/);
+ stats.close();
+ const file=path.join(dir,'call-stats.json');
+ fs.writeFileSync(file,JSON.stringify({version:1,encrypted:'damaged'}));
+ const old=fs.readFileSync(file,'utf8');
+ assert.throws(()=>new CallStats(dir),/损坏|解密/);
+ assert.equal(fs.readFileSync(file,'utf8'),old);
+});
