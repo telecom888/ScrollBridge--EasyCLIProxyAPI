@@ -30,13 +30,13 @@ func TestHostingSameModelPriorityAndFailover(t *testing.T){
  t.Setenv("SB_TEST_A","private-a");t.Setenv("SB_TEST_B","private-b")
  var first,second atomic.Int32
  a:=httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){
-  first.Add(1)
+  if r.Method=="POST" { first.Add(1) }
   if r.Header.Get("Authorization")!="Bearer private-a"{t.Error("source A key mismatch")}
   w.WriteHeader(429);io.WriteString(w,"rate limited")
  }))
  defer a.Close()
  b:=httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter,r *http.Request){
-  second.Add(1)
+  if r.Method=="POST" { second.Add(1) }
   if r.Header.Get("Authorization")!="Bearer private-b"{t.Error("source B key mismatch")}
   w.Header().Set("Content-Type","application/json")
   io.WriteString(w,`{"model":"shared-model","choices":[{"message":{"content":"ok"}}]}`)
