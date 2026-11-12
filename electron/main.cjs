@@ -30,7 +30,7 @@ const configDirectory = dataDirectory({testDirectory:process.env.SCROLLBRIDGE_TE
 // Both desktop editions and every portable filename share the same identity.
 const profileDirectory = process.env.SCROLLBRIDGE_TEST_PROFILE || process.env.SCROLLBRIDGE_TEST_DATA || path.join(app.getPath('appData'), 'ScrollBridge');
 fs.mkdirSync(profileDirectory, {recursive:true});
-const callStats = new CallStats(profileDirectory);
+let callStats;
 app.setPath('userData', profileDirectory);
 const ownsProfile = app.requestSingleInstanceLock();
 if (!ownsProfile) app.quit();
@@ -109,7 +109,7 @@ const actions = {
     const old=payload.id?config.hostingProviders.find(p=>p.id===payload.id):null;
     if(payload.id&&!old)throw Error('托管账号不存在');
     if(!old && (!payload.key || typeof payload.key!=='string'))throw Error('请输入 API Key');
-    if(payload.key!==undefined && (typeof payload.key!=='string' || payload.key.length>8192 || /[\\r\\n]/.test(payload.key)))throw Error('API Key 无效');
+    if(payload.key!==undefined && (typeof payload.key!=='string' || payload.key.length>8192 || /[\r\n]/.test(payload.key)))throw Error('API Key 无效');
     const p={id:old?.id||uid(),name:payload.name.trim(),protocol:payload.protocol,baseUrl:safeBase(payload.protocol,payload.baseUrl),enabled:payload.enabled};
     if(p.protocol==='vertex'){p.projectId=payload.projectId?.trim()||'';p.location=payload.location?.trim()||'global';}
     // Reject protocol or project changes while old models are attached to avoid silent route changes.
@@ -143,7 +143,7 @@ const actions = {
     if(!Array.isArray(payload.models) || payload.models.length<1 || payload.models.length>500 || payload.models.some(id=>typeof id!=='string'))throw Error('模型列表无效');
     const existing=new Set(config.hostingModels.filter(m=>m.providerId===p.id).map(m=>m.modelId.toLowerCase()));
     const added=[];
-    for(const raw of payload.models){const modelId=raw.trim();if(!/^[a-zA-Z0-9][a-zA-Z0-9._:\\/-]{0,127}$/.test(modelId))throw Error('无效的模型 ID');if(!existing.has(modelId.toLowerCase())){added.push({id:uid(),providerId:p.id,modelId,enabled:true});existing.add(modelId.toLowerCase());}}
+    for(const raw of payload.models){const modelId=raw.trim();if(!/^[a-zA-Z0-9][a-zA-Z0-9._:\/-]{0,127}$/.test(modelId))throw Error('无效的模型 ID');if(!existing.has(modelId.toLowerCase())){added.push({id:uid(),providerId:p.id,modelId,enabled:true});existing.add(modelId.toLowerCase());}}
     return commit({...config,hostingModels:[...config.hostingModels,...added]});
   },
   removeHostingModel: payload => {
@@ -318,7 +318,7 @@ app.whenReady().then(async () => {
   if (!ownsProfile) return;
   session.defaultSession.setPermissionRequestHandler((_, __, cb) => cb(false));
   store = new Store(configDirectory);
-  try { ({ config, secrets } = store.load()); } catch (e) {
+  try { ({ config, secrets } = store.load()); callStats=new CallStats(profileDirectory); } catch (e) {
     const reportPath = path.join(configDirectory, 'startup-error.json');
     let reportSaved = false;
     try {
@@ -381,4 +381,4 @@ app.whenReady().then(async () => {
   }
 });
 app.on('window-all-closed', () => { if (!gateway) { closing = true; app.quit(); } });
-app.on('before-quit', e => { callStats.close(); modelRefresh?.stop();managementAPI?.close();if (gateway || tunnel) { e.preventDefault(); closing = true; stop().finally(() => app.quit()); } });
+app.on('before-quit', e => { try{callStats?.close();}catch{console.warn('调用统计保存失败');} modelRefresh?.stop();managementAPI?.close();if (gateway || tunnel || hostedBridge) { e.preventDefault(); closing = true; stop().finally(() => app.quit()); } });

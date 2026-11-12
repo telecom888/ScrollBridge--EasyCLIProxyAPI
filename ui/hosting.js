@@ -59,12 +59,14 @@ function renderHostingCandidates(){
  $('hosting-add-selected').hidden=!hostingChosen.size;
 }
 function initHosting(){
- $('hosting-add').onclick=()=>{hostingSelection=null;resetHostingForm(null);renderHosting();$('hosting-name').focus();};
+ const switchTab=name=>{for(const button of document.querySelectorAll('[data-hosting-tab]'))button.classList.toggle('active',button.dataset.hostingTab===name);$('hosting-keys-view').hidden=name!=='keys';$('hosting-routes-panel').hidden=name!=='routes';};
+ for(const button of document.querySelectorAll('[data-hosting-tab]'))button.onclick=()=>{switchTab(button.dataset.hostingTab);reveal(button.dataset.hostingTab==='keys'?$('hosting-keys-view'):$('hosting-routes-panel'));};
+ $('hosting-add').onclick=()=>{switchTab('keys');hostingSelection=null;resetHostingForm(null);renderHosting();$('hosting-name').focus();};
  $('hosting-protocol').onchange=()=>{$('hosting-vertex-fields').hidden=$('hosting-protocol').value!=='vertex';$('hosting-url').value=hostingDefaults[$('hosting-protocol').value];};
  $('hosting-form').onsubmit=e=>{e.preventDefault();task(e.submitter,async()=>{
    const payload={id:hostingSelection,name:$('hosting-name').value,protocol:$('hosting-protocol').value,baseUrl:$('hosting-url').value,
      projectId:$('hosting-project').value,location:$('hosting-location').value,enabled:$('hosting-enabled').checked,key:$('hosting-key').value};
-   const result=await call('saveHostingProvider',payload);hostingSelection=result.providerId;resetHostingForm({id:result.providerId,...payload});render(await call('snapshot'));toast('密钥已保存');
+   const result=await call('saveHostingProvider',payload);hostingSelection=result.providerId;resetHostingForm({...payload,id:result.providerId});render(await call('snapshot'));toast('密钥已保存');
  });};
  $('hosting-delete').onclick=()=>task($('hosting-delete'),async()=>{
    if(!await confirmDialog({title:'删除托管密钥？',message:'将同时移除该密钥关联的模型。',accept:'确认删除'}))return;

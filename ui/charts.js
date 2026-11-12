@@ -1,13 +1,18 @@
 let displayedChartRange = '3h';
+let chartRequest=0,chartSignature='',chartTimer;
+function scheduleCallChart(){if(!chartTimer)chartTimer=setTimeout(()=>{chartTimer=null;if(currentPage==='records')void renderCallChart();},500);}
 async function renderCallChart() {
   const root = document.getElementById('call-chart-view');
   if (!root || root.hidden) return;
-  const range = document.getElementById('chart-range').value;
+  const range = document.getElementById('chart-range').value,ticket=++chartRequest;
   displayedChartRange = range;
   let result;
   try { result = await call('getCallChart', {range}); } catch { return; }
-  if (range !== displayedChartRange || root.hidden) return;
-  document.getElementById('chart-total').textContent = '调用次数 ' + result.total.toLocaleString('zh-CN');
+  if (ticket!==chartRequest || range !== displayedChartRange || root.hidden) return;
+  const signature=JSON.stringify(result);if(signature===chartSignature)return;chartSignature=signature;
+  const title=document.createElement('span');title.className='chart-total-label';title.textContent='调用次数';
+  const total=document.createElement('strong');total.textContent=result.total.toLocaleString('zh-CN');
+  document.getElementById('chart-total').replaceChildren(title,total);
   const host = document.getElementById('chart-bars');
   host.replaceChildren();
   const max = Math.max(1, ...result.bars.map(bar => bar.count));

@@ -59,8 +59,8 @@
   </section>
 
   <section id="page-hosting" class="page" hidden>
-    <div class="section-head"><h2>托管密钥</h2><button id="hosting-add" class="primary small"><span data-icon="plus"></span>添加密钥</button></div>
-    <div class="hosting-workspace">
+    <div class="section-head hosting-toolbar"><div class="tabs" id="hosting-tabs"><button class="active" data-hosting-tab="keys">密钥管理</button><button data-hosting-tab="routes">同名模型路由</button></div><button id="hosting-add" class="primary"><span data-icon="plus"></span>添加密钥</button></div>
+    <div class="hosting-workspace" id="hosting-keys-view">
       <div class="panel hosting-list" id="hosting-list"><div class="empty">尚未添加托管密钥</div></div>
       <div class="panel hosting-editor" id="hosting-editor">
         <form id="hosting-form">
@@ -77,7 +77,8 @@
           <div class="setting-row"><strong>启用此密钥</strong><input id="hosting-enabled" type="checkbox" role="switch" checked></div>
           <div class="hosting-actions"><button type="button" id="hosting-delete" class="secondary danger-text" hidden>删除密钥</button><button type="submit" class="primary small">保存密钥</button></div>
         </form>
-        <div id="hosting-model-area" hidden>
+      </div>
+        <div class="panel hosting-model-panel" id="hosting-model-area" hidden>
           <div class="section-head"><h2>模型</h2><button id="hosting-refresh" class="secondary">获取模型</button></div>
           <div class="hosting-manual"><input id="hosting-manual-id" spellcheck="false" placeholder="也可以手动填写模型 ID"><button id="hosting-manual-add" class="secondary">添加</button></div>
           <input id="hosting-model-search" type="search" placeholder="搜索可用模型" aria-label="搜索可用模型">
@@ -85,18 +86,13 @@
           <button id="hosting-add-selected" class="primary small" hidden>添加所选模型</button>
           <div id="hosting-added-models"></div>
         </div>
-      </div>
     </div>
-    <div class="panel" id="hosting-routes-panel">
+    <div class="panel" id="hosting-routes-panel" hidden>
       <div class="section-head"><h2>同名模型路由</h2></div>
       <div id="hosting-route-groups"><div class="empty">暂无相同模型的多个来源</div></div>
     </div>
   </section>
   <section id="page-settings" class="page" hidden>
-    <div class="panel"><h2>模型显示与路由</h2>
-      <div class="setting-row"><div><strong>显示模型来源</strong><p>模型列表显示托管密钥名称或本地代理</p></div><input type="checkbox" role="switch" id="showModelSources"></div>
-      <div class="setting-row"><div><strong>同名模型统一路由</strong><p>多个来源对外共用同一个模型 ID，优先选择排列靠前的来源</p></div><input type="checkbox" role="switch" id="unifiedModelRouting"></div>
-    </div>
     <div class="panel"><h2>外观</h2><div class="theme-options"><button data-theme="light"><span class="theme-preview light-preview"></span>浅色</button><button data-theme="dark"><span class="theme-preview dark-preview"></span>深色</button><button data-theme="system"><span class="theme-preview system-preview"></span>跟随系统</button></div></div>
     <div class="panel" id="update-panel">
       <h2>更新</h2><p id="update-current"></p><p id="update-message" role="status" aria-live="polite">尚未检测更新</p>
@@ -104,6 +100,10 @@
       <div class="update-actions"><button id="check-update" class="secondary">检测更新</button><button id="github-project" class="secondary">GitHub 开源项目<span data-icon="external"></span></button><button id="download-update" class="primary" hidden>下载并更新</button></div>
       <details id="update-notes" hidden><summary>更新日志<span class="update-notes-toggle"></span></summary><strong id="update-notes-version"></strong><p id="update-published"></p><div id="update-notes-body"></div></details>
       <div id="update-progress-row" hidden><div class="update-progress-head"><span>正在下载更新</span><span id="update-percent"></span></div><progress id="update-progress" max="100" value="0" aria-label="下载进度"></progress><div class="update-progress-meta"><span id="update-bytes"></span><span id="update-speed"></span></div></div>
+    </div>
+    <div class="panel" id="routing-settings"><h2>模型路由</h2>
+      <div class="setting-row"><div><strong>显示模型来源</strong><p>在模型列表显示托管密钥名称或本地代理</p></div><input type="checkbox" role="switch" id="showModelSources" aria-label="显示模型来源"></div>
+      <div class="setting-row"><div><strong>同名模型统一路由</strong><p>相同模型共用对外 ID，按来源优先级请求</p></div><input type="checkbox" role="switch" id="unifiedModelRouting" aria-label="同名模型统一路由"></div>
     </div>
     <div class="panel"><h2>连接</h2><div class="setting-row"><div><strong>隧道传输</strong><p>自动选择；网络限制 UDP 时可使用 HTTP/2</p></div><select id="transport"><option value="auto">自动</option><option value="http2">HTTP/2</option><option value="quic">QUIC</option></select></div><div class="setting-row"><div><strong>开机启动</strong><p id="startup-status">登录 Windows 后打开应用，连接需手动启动</p></div><input id="launchAtLogin" type="checkbox" role="switch" aria-label="开机启动"></div><div class="setting-row"><div><strong>显示请求IP</strong><p>仅控制列表显示；关闭后仍在本次运行中记录 IP</p></div><input id="recordRequestIP" type="checkbox" role="switch" aria-label="显示请求IP"></div><div class="setting-row"><div><strong>显示请求体</strong><p>关闭后仍采集有限预览，仅在本次运行中保留</p></div><input id="showRequestBody" type="checkbox" role="switch" aria-label="显示请求体"></div><div class="setting-row"><div><strong>IP 黑名单</strong><p id="ip-blacklist-summary">暂无黑名单</p></div><button id="manage-blacklist" class="secondary">管理黑名单</button></div></div>
     <div class="panel"><h2>模型列表</h2><div class="setting-row"><div><strong>启动时自动刷新模型列表</strong></div><input id="refreshModelsOnStartup" type="checkbox" role="switch" aria-label="启动时自动刷新模型列表"></div><div class="setting-row"><div><strong>定时刷新</strong><p>刷新失败时保留现有列表</p></div><select id="model-refresh-mode" aria-label="定时刷新"><option value="off">不刷新</option><option value="interval">按时间刷新</option></select></div><form id="model-refresh-form" class="refresh-interval" hidden><label>刷新间隔（分钟）<input id="modelRefreshMinutes" type="number" min="1" max="10080" step="1" required value="30"></label><button type="submit" class="secondary">保存</button></form></div>

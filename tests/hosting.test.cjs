@@ -5,6 +5,20 @@ const {fetchHostingModels,hostingEntries,publicModelId,orderByRoutes}=require('.
 const {toGoConfig}=require('../lib/go-gateway.cjs');
 const {build,normalize,convertResponse}=require('../lib/hosted-bridge.cjs');
 const p=id=>({id,name:id,protocol:'google',baseUrl:'https://generativelanguage.googleapis.com',enabled:true});
+test('hosted bridge preserves repeated stream deltas and rejects ambiguous failures',async()=>{
+ const {startHostedBridge}=require('../lib/hosted-bridge.cjs');
+ let mode='repeat';const bridge=await startHostedBridge({getConfig:()=>({hostingProviders:[p('key')]}),getSecrets:()=>({hostingKeys:{key:'private'}}),token:'bridge-token',fetcher:async()=>{
+  if(mode==='network')throw Error('socket failed');
+  const values=mode==='repeat'?[{candidates:[{content:{parts:[{text:'ha'}]}}]},{candidates:[{content:{parts:[{text:'ha'}]},finishReason:'STOP'}]}]:[{error:{message:'upstream error'}}];
+  return new Response(values.map(v=>'data: '+JSON.stringify(v)+'\n\n').join(''),{headers:{'content-type':'text/event-stream'}});
+ }});
+ const request=()=>fetch(bridge.url+'/v1/chat/completions',{method:'POST',headers:{authorization:'Bearer bridge-token','x-scrollbridge-hosting-provider':'key','content-type':'application/json'},body:JSON.stringify({model:'gemini-test',messages:[{role:'user',content:'hi'}],stream:true})});
+ try{
+  const reply=await request(),text=await reply.text();assert.equal((text.match(/"content":"ha"/g)||[]).length,2);assert.match(text,/\[DONE\]/);
+  mode='network';await assert.rejects(request());
+  mode='error';await assert.rejects(async()=>{const r=await request();await r.text();});
+ }finally{await bridge.close();}
+});
 const m=(id,providerId,modelId='gemini-test')=>({id,providerId,modelId,enabled:true});
 function data(){
   return validateConfig({hostingProviders:[p('aaa'),p('bbb')],hostingModels:[m('model-a','aaa'),m('model-b','bbb')]});

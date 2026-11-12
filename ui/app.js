@@ -174,7 +174,7 @@ function renderRecords(animate=true) {
   if(selectedBodyId&&!snapshot.records.some(row=>row.id===selectedBodyId))closeDialog($('request-body-dialog'));
   const logs=$('tunnel-logs'), occurrences=new Map();
   $('export-records').hidden=!logs.hidden; $('clear-records').hidden=!$('call-chart-view').hidden;
-  if(!$('call-chart-view').hidden){return;}
+  if(!$('call-chart-view').hidden){$('export-records').hidden=true;$('record-pagination').hidden=true;$('record-note').textContent='按本机时间汇总，保留最近 31 天的调用次数。';scheduleCallChart();return;}
   if(logs.hidden){renderRequestRecords(animate!==false);return;}
   $('record-pagination').hidden=true;
   $('record-note').textContent='仅保留本次运行的最近 100 条隧道记录。';
