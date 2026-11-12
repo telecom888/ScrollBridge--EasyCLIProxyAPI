@@ -41,7 +41,7 @@ function page(name) {
   document.querySelectorAll('.page').forEach(el => el.hidden = el.id !== `page-${name}`);
   const selected = document.querySelector(`.nav[data-page="${name}"]`);
   moveSelection(selected.parentElement, selected);
-  $('page-title').textContent = {connection:'连接',access:'接入',keys:'密钥',catalog:'模型',records:'记录',settings:'设置'}[name];
+  $('page-title').textContent = {connection:'连接',access:'接入',keys:'密钥',catalog:'模型',records:'记录',hosting:'托管',settings:'设置'}[name];
   if(name==='records')renderRecords();
   reveal($(`page-${name}`)); reveal(document.querySelector('.page-heading'));
   window.scrollTo(0,0);
@@ -65,7 +65,8 @@ function render(s) {
   $('imagesEnabled').checked = s.config.imagesEnabled;
   $('geminiImageCompatibility').checked = s.config.geminiImageCompatibility;
   $('speechEnabled').checked = s.config.speechEnabled;
-  renderRecordSettings();renderModelRefreshSettings();renderManagement();renderDiagnosticModels();renderUpdates();
+  renderRecordSettings();renderModelRefreshSettings();renderManagement();renderDiagnosticModels();renderUpdates();renderHosting();
+  $('showModelSources').checked=s.config.showModelSources; $('unifiedModelRouting').checked=s.config.unifiedModelRouting;
   $('version').textContent = `v${s.version.replace(/-beta(?:\.\d+)?$/,' beta')}`; renderExample(); refreshRecordView(s.recordsCatchUp); renderDiagnostics(); renderModelCatalog();
 }
 for (const id of ['upstream','port','hostname','upstreamKey','tunnelToken']) $(id).addEventListener('input', () => { dirty = true; });
@@ -105,6 +106,8 @@ $('rotate-key').textContent='管理密钥';$('rotate-key').onclick = () => page(
 async function changeSetting(patch) { const s = await call('save', {config:patch}); render(s); toast('设置已保存'); }
 $('theme-toggle').onclick = () => task(null, () => changeSetting({theme:document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark'}));
 document.querySelectorAll('[data-theme]').forEach(el => el.onclick = () => task(el, () => changeSetting({theme:el.dataset.theme})));
+$('showModelSources').onchange=()=>task($('showModelSources'),()=>changeSetting({showModelSources:$('showModelSources').checked}));
+$('unifiedModelRouting').onchange=()=>task($('unifiedModelRouting'),async()=>{try{await changeSetting({unifiedModelRouting:$('unifiedModelRouting').checked});}finally{render(await call('snapshot'));}});
 $('transport').onchange = () => task(null, () => changeSetting({protocol:$('transport').value})); $('launchAtLogin').onchange = () => task(null, async () => { try { await changeSetting({launchAtLogin:$('launchAtLogin').checked}); } finally { render(await call('snapshot')); } });
 $('imagesEnabled').onchange = () => task($('imagesEnabled'), async () => { try { await changeSetting({imagesEnabled:$('imagesEnabled').checked}); } finally { render(await call('snapshot')); } });
 $('geminiImageCompatibility').onchange = () => task($('geminiImageCompatibility'), async () => { try { await changeSetting({geminiImageCompatibility:$('geminiImageCompatibility').checked}); } finally { render(await call('snapshot')); } });
@@ -281,6 +284,6 @@ function receiveRecords(data){
   snapshot.logs=data.logs;
   refreshRecordView(data.catchUp);
 }
-initManagement();initRecordsUI();
+initManagement();initRecordsUI();initHosting();
 if (window.bridge) { window.bridge.onUpdate(render);window.bridge.onRecords(receiveRecords); call('snapshot').then(render).catch(() => {}); }
 else { $('status-message').textContent = '请使用桌面应用启动'; }

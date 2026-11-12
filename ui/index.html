@@ -14,6 +14,7 @@
     <button class="nav" data-page="keys"><span data-icon="lock"></span>密钥</button>
     <button class="nav" data-page="catalog"><span data-icon="models"></span>模型</button>
     <button class="nav" data-page="records"><span data-icon="file"></span>记录</button>
+    <button class="nav" data-page="hosting"><span data-icon="globe"></span>托管</button>
     <button class="nav" data-page="settings"><span data-icon="settings"></span>设置</button>
   </nav>
   <div class="sidebar-foot"><span class="tiny-dot"></span>本机运行<small id="version">v0.1.6</small></div>
@@ -56,7 +57,42 @@
     <div class="panel"><div class="section-head"><div><h2>本地模型</h2><div id="catalog-summary" class="note">尚未获取</div></div><button id="refresh-models" class="secondary"><span data-icon="download"></span>从代理获取</button></div><input id="model-search" type="search" placeholder="搜索模型" aria-label="搜索模型" spellcheck="false"><div id="catalog-list" class="catalog-list"></div></div>
     <p class="note">开关自动保存，对后续外部请求立即生效。关闭的模型会从外部列表隐藏，直接调用也会被拒绝。首次获取和新发现的模型默认开放。</p>
   </section>
+
+  <section id="page-hosting" class="page" hidden>
+    <div class="section-head"><h2>托管密钥</h2><button id="hosting-add" class="primary small"><span data-icon="plus"></span>添加密钥</button></div>
+    <div class="hosting-workspace">
+      <div class="panel hosting-list" id="hosting-list"><div class="empty">尚未添加托管密钥</div></div>
+      <div class="panel hosting-editor" id="hosting-editor">
+        <form id="hosting-form">
+          <h2 id="hosting-title">添加密钥</h2>
+          <label>名称<input id="hosting-name" maxlength="80" required autocomplete="off" placeholder="自定义账号名称"></label>
+          <label>协议<select id="hosting-protocol"><option value="openai">OpenAI</option><option value="anthropic">Anthropic</option><option value="google">Google</option><option value="vertex">Vertex AI</option></select></label>
+          <label>API 地址<input id="hosting-url" spellcheck="false" required></label>
+          <div id="hosting-vertex-fields" hidden>
+            <label>Project ID<input id="hosting-project" spellcheck="false" placeholder="Google Cloud 项目 ID"></label>
+            <label>Location<input id="hosting-location" spellcheck="false" value="global"></label>
+          </div>
+          <label>API Key<input id="hosting-key" type="password" autocomplete="off" spellcheck="false" placeholder="输入或更新上游密钥"></label>
+          <div class="hosting-key-actions"><button type="button" id="hosting-reveal" class="text-button">显示密钥</button><button type="button" id="hosting-copy" class="text-button">复制密钥</button></div>
+          <div class="setting-row"><strong>启用此密钥</strong><input id="hosting-enabled" type="checkbox" role="switch" checked></div>
+          <div class="hosting-actions"><button type="button" id="hosting-delete" class="secondary danger-text" hidden>删除密钥</button><button type="submit" class="primary small">保存密钥</button></div>
+        </form>
+        <div id="hosting-model-area" hidden>
+          <div class="section-head"><h2>模型</h2><button id="hosting-refresh" class="secondary">获取模型</button></div>
+          <div class="hosting-manual"><input id="hosting-manual-id" spellcheck="false" placeholder="也可以手动填写模型 ID"><button id="hosting-manual-add" class="secondary">添加</button></div>
+          <input id="hosting-model-search" type="search" placeholder="搜索可用模型" aria-label="搜索可用模型">
+          <div id="hosting-model-candidates"></div>
+          <button id="hosting-add-selected" class="primary small" hidden>添加所选模型</button>
+          <div id="hosting-added-models"></div>
+        </div>
+      </div>
+    </div>
+  </section>
   <section id="page-settings" class="page" hidden>
+    <div class="panel"><h2>模型显示与路由</h2>
+      <div class="setting-row"><div><strong>显示模型来源</strong><p>模型列表显示托管密钥名称或本地代理</p></div><input type="checkbox" role="switch" id="showModelSources"></div>
+      <div class="setting-row"><div><strong>同名模型统一路由</strong><p>多个来源对外共用同一个模型 ID，优先选择排列靠前的来源</p></div><input type="checkbox" role="switch" id="unifiedModelRouting"></div>
+    </div>
     <div class="panel"><h2>外观</h2><div class="theme-options"><button data-theme="light"><span class="theme-preview light-preview"></span>浅色</button><button data-theme="dark"><span class="theme-preview dark-preview"></span>深色</button><button data-theme="system"><span class="theme-preview system-preview"></span>跟随系统</button></div></div>
     <div class="panel" id="update-panel">
       <h2>更新</h2><p id="update-current"></p><p id="update-message" role="status" aria-live="polite">尚未检测更新</p>
@@ -89,5 +125,5 @@
 <dialog id="export-records-dialog"><form id="export-records-form"><h2>导出记录</h2><label>范围<select id="export-scope"><option value="filtered">当前筛选结果</option><option value="all">全部已保留记录</option></select></label><label>格式<select id="export-format"><option value="csv">CSV</option><option value="json">JSON</option></select></label><div class="dialog-actions"><button id="cancel-export" type="button" class="secondary">取消</button><button type="submit" class="primary">导出</button></div></form></dialog>
 <dialog id="request-body-dialog"><div class="section-head"><h2>请求体</h2><button id="close-request-body" class="text-button">关闭</button></div><p id="request-body-meta" class="note"></p><pre id="request-body-content" tabindex="0"></pre><p class="note">仅显示最多 16 KiB 的预览，不包含请求头或 URL 查询参数；可能含有提示词或其他敏感信息。</p></dialog>
 <div id="request-ip-menu" popover="auto"><button id="copy-request-ip" type="button">复制 IP</button><button id="block-request-ip" type="button">加入黑名单</button></div>
-<script src="records.js"></script><script src="charts.js"></script><script src="app.js"></script>
+<script src="records.js"></script><script src="charts.js"></script><script src="hosting.js"></script><script src="app.js"></script>
 </body></html>
