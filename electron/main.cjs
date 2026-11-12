@@ -1,6 +1,8 @@
 const { app, BrowserWindow, ipcMain, dialog, shell, clipboard, nativeImage, Tray, Menu, session, net } = require('electron');
 const {RequestRecords,normalizeIP,exportRecords}=require('../lib/request-records.cjs');
 const {CallStats}=require('../lib/call-stats.cjs');
+const {startHostedBridge}=require('../lib/hosted-bridge.cjs');
+const {randomBytes}=require('node:crypto');
 const requestRecords=new RequestRecords();
 const fs = require('node:fs');
 const path = require('node:path');
@@ -32,7 +34,7 @@ const callStats = new CallStats(profileDirectory);
 app.setPath('userData', profileDirectory);
 const ownsProfile = app.requestSingleInstanceLock();
 if (!ownsProfile) app.quit();
-let window, tray, store, config, secrets, gateway, tunnel, closing = false, busy = false;
+let window, tray, store, config, secrets, gateway, tunnel, hostedBridge, closing = false, busy = false;
 let modelRefresh, managementAPI, updater, startup;
 let status = 'stopped', message = '', logs = [], localDiagnostic = null, publicDiagnostic = null;
 const view = () => ({ config, keys:config.accessKeys.map(key=>({...key,masked:`${secrets.keyValues[key.id].slice(0,6)}…${secrets.keyValues[key.id].slice(-4)}`})), modelEntries:entries(config),hasUpstreamKey: !!secrets.upstreamKey, hasTunnelToken: !!secrets.tunnelToken, gatewayRunning: !!gateway, status, message, records:requestRecords.all(config.recordRequestIP,config.showRequestBody), logs, localDiagnostic, publicDiagnostic, update:updater?.snapshot(),startup:startup?.snapshot(),version: app.getVersion(),features:{billing:gatewayEngine==='go',keyLimits:gatewayEngine==='go'} });
@@ -65,7 +67,7 @@ function publishRecords() {
 }
 function state(next, detail = '') { status = next; message = detail; publish(); }
 function log(line) { logs.unshift({ time: new Date().toISOString(), text: line }); if(logs.length>100)logs.length=100;publishRecords(); }
-async function stop() { if (tunnel) { const t = tunnel; tunnel = null; await t.stop(); } if (gateway) { const g = gateway; gateway = null; await g.close(); } state('stopped'); }
+async function stop() { if (tunnel) { const t = tunnel; tunnel = null; await t.stop(); } if (gateway) { const g = gateway; gateway = null; await g.close(); } if(hostedBridge){const h=hostedBridge;hostedBridge=null;await h.close();} state('stopped'); }
 async function save(payload = {}) {
   if(payload.config?.updateSource!==undefined)throw new Error('请通过更新来源选项修改');
   if(['accessKeys','modelRules'].some(field=>payload.config?.[field]!==undefined) || payload.accessKey!==undefined)throw new Error('请通过密钥或模型页面编辑');
@@ -204,7 +206,9 @@ const actions = {
     state('starting');
     try {
       await fetchModels(config,secrets);
-      gateway = await startGateway(config, secrets, record => { requestRecords.resize(config.requestRecordLimit);callStats.record(record);const row=requestRecords.add(record);if(windowVisible()&&!recordsCatchUp)recordChanges.set(row.id,row);if(recordChanges.size>config.requestRecordLimit)recordChanges.delete(recordChanges.keys().next().value);publishRecords(); }, { executable:app.isPackaged?path.join(process.resourcesPath,'vendor','scrollbridge-gateway.exe'):path.join(app.getAppPath(),'vendor','scrollbridge-gateway.exe'),stateDir:path.join(app.getPath('userData'),'gateway-go'),onExit:()=>{void stop().then(()=>state('error','网关意外退出，请重新连接'));},getConfig:()=>config,getSecrets:()=>secrets });
+      const hostingToken=randomBytes(32).toString('base64url');
+      hostedBridge=await startHostedBridge({getConfig:()=>config,getSecrets:()=>secrets,token:hostingToken});
+      gateway = await startGateway(config, secrets, record => { requestRecords.resize(config.requestRecordLimit);callStats.record(record);const row=requestRecords.add(record);if(windowVisible()&&!recordsCatchUp)recordChanges.set(row.id,row);if(recordChanges.size>config.requestRecordLimit)recordChanges.delete(recordChanges.keys().next().value);publishRecords(); }, { executable:app.isPackaged?path.join(process.resourcesPath,'vendor','scrollbridge-gateway.exe'):path.join(app.getAppPath(),'vendor','scrollbridge-gateway.exe'),stateDir:path.join(app.getPath('userData'),'gateway-go'),onExit:()=>{void stop().then(()=>state('error','网关意外退出，请重新连接'));},getConfig:()=>config,getSecrets:()=>secrets,hostingUrl:hostedBridge.url,hostingToken });
       const executable = app.isPackaged ? path.join(process.resourcesPath, 'vendor', 'cloudflared.exe') : path.join(app.getAppPath(), 'vendor', 'cloudflared.exe');
       tunnel = startTunnel({ executable, token: secrets.tunnelToken, protocol: config.protocol, onState: state, onLog: log });
       log('网关已启动，等待隧道连接');
