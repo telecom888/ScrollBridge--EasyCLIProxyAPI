@@ -60,15 +60,21 @@ type Model struct {
 	Enabled      bool              `json:"enabled"`
 	Available    *bool             `json:"available,omitempty"`
 	Rates        *Rates            `json:"rates,omitempty"`
+	UpstreamID   string            `json:"upstreamId,omitempty"`
+	SourceProtocol string           `json:"sourceProtocol,omitempty"`
+	PublicName   string            `json:"publicName,omitempty"`
 }
 type Upstream struct {
 	ID     string `json:"id"`
 	URL    string `json:"url"`
 	KeyEnv string `json:"keyEnv"`
 	Auth   string `json:"auth,omitempty"`
+	Protocol string `json:"protocol,omitempty"`
 }
 type entry struct {
 	Name, Actual, ID string
+	UpstreamID string
+	SourceProtocol string
 	Enabled          bool
 	Available        bool
 	Billing          Billing
@@ -78,6 +84,7 @@ type snapshot struct {
 	keys            map[[32]byte]*Key
 	byID            map[string]*Key
 	names           map[string]entry
+	routes          map[string][]entry
 	grants          map[string]map[string]bool
 	ordered         []entry
 	accessSignature string
@@ -156,7 +163,7 @@ func compile(c Config) (*snapshot, error) {
 	if len(c.Keys) > 1000 || len(c.Models) > 10000 || len(c.Upstreams) == 0 || len(c.Upstreams) > 64 {
 		return nil, errors.New("invalid configuration size")
 	}
-	s := &snapshot{cfg: c, keys: map[[32]byte]*Key{}, byID: map[string]*Key{}, names: map[string]entry{}, grants: map[string]map[string]bool{}}
+	s := &snapshot{cfg: c, keys: map[[32]byte]*Key{}, byID: map[string]*Key{}, names: map[string]entry{}, routes: map[string][]entry{}, grants: map[string]map[string]bool{}}
 	s.blockedIPs = map[string]bool{}
 	for _, ip := range c.IPBlacklist {
 		s.blockedIPs[ip] = true
@@ -175,11 +182,12 @@ func compile(c Config) (*snapshot, error) {
 				return nil, err
 			}
 		}
-		if !validID.MatchString(m.ID) || ids[m.ID] || !validActual.MatchString(m.Actual) || actuals[normalized(m.Actual)] || len(m.Aliases) > 1000 {
+		actualKey := m.UpstreamID + "|" + normalized(m.Actual)
+		if !validID.MatchString(m.ID) || ids[m.ID] || !validActual.MatchString(m.Actual) || actuals[actualKey] || len(m.Aliases) > 1000 || (m.UpstreamID != "" && !validID.MatchString(m.UpstreamID)) || (m.PublicName != "" && !validID.MatchString(m.PublicName)) {
 			return nil, errors.New("invalid or duplicate model")
 		}
 		ids[m.ID] = true
-		actuals[normalized(m.Actual)] = true
+		actuals[actualKey] = true
 	}
 	for _, m := range c.Models {
 		for _, a := range m.Aliases {
@@ -188,6 +196,7 @@ func compile(c Config) (*snapshot, error) {
 			}
 		}
 		all := append([]string{m.Actual}, m.Aliases...)
+		if m.PublicName != "" { all = []string{m.PublicName} }
 		validNames := map[string]bool{}
 		for _, name := range all {
 			validNames[name] = true
@@ -209,9 +218,11 @@ func compile(c Config) (*snapshot, error) {
 		if m.KeepOriginal || len(names) == 0 {
 			names = append([]string{m.Actual}, names...)
 		}
+		if m.PublicName != "" { names = []string{m.PublicName} }
 		for _, name := range names {
 			n := normalized(name)
-			if (!validID.MatchString(name) && name != m.Actual) || s.names[n].Name != "" || (actuals[n] && n != normalized(m.Actual)) {
+			previous := s.names[n]
+			if (!validID.MatchString(name) && name != m.Actual) || (previous.Name != "" && (normalized(previous.Actual) != normalized(m.Actual) || m.PublicName == "")) || (actuals["|"+n] && n != normalized(m.Actual) && m.PublicName == "") {
 				return nil, errors.New("invalid or colliding exposure")
 			}
 			billing := s.cfg.Billing
@@ -223,8 +234,10 @@ func compile(c Config) (*snapshot, error) {
 				id = n
 			}
 			available := m.Available == nil || *m.Available
-			s.names[n] = entry{Name: name, Actual: m.Actual, ID: id, Enabled: m.Enabled, Available: available, Billing: billing}
-			s.ordered = append(s.ordered, s.names[n])
+			candidate := entry{Name: name, Actual: m.Actual, ID: id, Enabled: m.Enabled, Available: available, Billing: billing, UpstreamID: m.UpstreamID, SourceProtocol: m.SourceProtocol}
+			if previous.Name == "" { s.names[n] = candidate }
+			s.routes[n] = append(s.routes[n], candidate)
+			s.ordered = append(s.ordered, candidate)
 		}
 	}
 	for i := range s.cfg.Keys {
@@ -271,6 +284,12 @@ func compile(c Config) (*snapshot, error) {
 		}
 		upstreams[u.ID] = true
 	}
+	for _, m := range c.Models {
+		if m.UpstreamID == "" { continue }
+		found := false
+		for _, u := range c.Upstreams { if u.ID == m.UpstreamID { found = true; break } }
+		if !found { return nil, errors.New("model refers to unknown upstream") }
+	}
 	access := s.cfg
 	access.Version = 0
 	access.IPBlacklist = nil
@@ -294,12 +313,14 @@ func (s *snapshot) auth(token string) *Key {
 	return k
 }
 func (s *snapshot) resolve(k *Key, name string) (entry, int) {
-	e, ok := s.names[normalized(name)]
-	if !ok || !e.Available {
-		return e, 404
+	candidates := s.routes[normalized(name)]
+	if len(candidates) == 0 { return entry{}, 404 }
+	seenAvailable := false
+	for _, e := range candidates {
+		if !e.Available { continue }
+		seenAvailable = true
+		if e.Enabled && (k.Mode != "selected" || s.grants[k.ID][e.ID]) { return e, 0 }
 	}
-	if !e.Enabled || (k.Mode == "selected" && !s.grants[k.ID][e.ID]) {
-		return e, 403
-	}
-	return e, 0
+	if seenAvailable { return candidates[0], 403 }
+	return candidates[0], 404
 }
