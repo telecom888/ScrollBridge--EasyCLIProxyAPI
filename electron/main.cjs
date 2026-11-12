@@ -118,11 +118,20 @@ const actions = {
     const nextSecrets={...secrets,hostingKeys:{...secrets.hostingKeys,...(payload.key?{[p.id]:payload.key}:{})}};
     return commit({...config,hostingProviders:providers},nextSecrets).then(()=>({providerId:p.id}));
   },
+  setHostingRouteOrder: payload => {
+    if(!payload||typeof payload.modelId!=='string'||!Array.isArray(payload.order))throw Error('路由配置无效');
+    const {routeKey}=require('../lib/hosting.cjs');
+    const group=routeKey(payload.modelId);
+    const members=[...config.modelRules.filter(m=>routeKey(m.actual)===group).map(m=>m.id),...config.hostingModels.filter(m=>routeKey(m.modelId)===group).map(m=>m.id)];
+    if(members.length<2||members.length!==payload.order.length||new Set(payload.order).size!==members.length||payload.order.some(id=>!members.includes(id)))throw Error('路由来源必须完整且不能重复');
+    return commit({...config,hostingRouteOrders:{...config.hostingRouteOrders,[group]:payload.order}});
+  },
   deleteHostingProvider: payload => {
     const p=config.hostingProviders.find(p=>p.id===payload?.id);if(!p)throw Error('托管账号不存在');
     const deleted=new Set(config.hostingModels.filter(m=>m.providerId===p.id).map(m=>m.id));
     const hostingKeys={...secrets.hostingKeys};delete hostingKeys[p.id];
-    return commit({...config,hostingProviders:config.hostingProviders.filter(x=>x.id!==p.id),hostingModels:config.hostingModels.filter(m=>m.providerId!==p.id),accessKeys:config.accessKeys.map(k=>({...k,allowed:k.allowed.filter(id=>!deleted.has(id))}))},{...secrets,hostingKeys});
+    const orders=Object.fromEntries(Object.entries(config.hostingRouteOrders).map(([k,order])=>[k,order.filter(id=>!deleted.has(id))]).filter(([,order])=>order.length>1));
+    return commit({...config,hostingProviders:config.hostingProviders.filter(x=>x.id!==p.id),hostingModels:config.hostingModels.filter(m=>m.providerId!==p.id),hostingRouteOrders:orders,accessKeys:config.accessKeys.map(k=>({...k,allowed:k.allowed.filter(id=>!deleted.has(id))}))},{...secrets,hostingKeys});
   },
   fetchHostingModels: async payload => {
     const p=config.hostingProviders.find(p=>p.id===payload?.id);if(!p)throw Error('托管账号不存在');
@@ -139,7 +148,8 @@ const actions = {
   },
   removeHostingModel: payload => {
     const old=config.hostingModels.find(m=>m.id===payload?.id);if(!old)throw Error('托管模型不存在');
-    return commit({...config,hostingModels:config.hostingModels.filter(m=>m.id!==old.id),accessKeys:config.accessKeys.map(k=>({...k,allowed:k.allowed.filter(id=>id!==old.id)}))});
+    const orders=Object.fromEntries(Object.entries(config.hostingRouteOrders).map(([k,order])=>[k,order.filter(id=>id!==old.id)]).filter(([,order])=>order.length>1));
+    return commit({...config,hostingModels:config.hostingModels.filter(m=>m.id!==old.id),hostingRouteOrders:orders,accessKeys:config.accessKeys.map(k=>({...k,allowed:k.allowed.filter(id=>id!==old.id)}))});
   },
   setHostingModelAccess: payload => {
     const old=config.hostingModels.find(m=>m.id===payload?.id);if(!old || typeof payload.enabled!=='boolean')throw Error('托管模型配置无效');
