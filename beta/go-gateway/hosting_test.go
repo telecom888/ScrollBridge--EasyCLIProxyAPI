@@ -55,9 +55,9 @@ func TestHostingSameModelPriorityAndFailover(t *testing.T){
  // Reordered sources should use B first, without contacting A.
  c.Version++;c.Models[0],c.Models[1]=c.Models[1],c.Models[0]
  next,err:=compile(c);if err!=nil{t.Fatal(err)}
- g.apply(next)
+ if err:=g.apply(next);err!=nil{t.Fatal("apply failed:",err)}
  code,_=call(t,server,"/v1/chat/completions",`{"model":"shared-model","messages":[{"role":"user","content":"hello"}]}`)
- if code!=200||first.Load()!=1||second.Load()!=2{t.Fatal("source priority was not applied")}
+ if code!=200||first.Load()!=1||second.Load()!=2{t.Fatalf("source priority failed: status=%d first=%d second=%d routes=%v",code,first.Load(),second.Load(),next.routes["shared-model"])}
 }
 func TestHostingGroupPermissionAndDisabledSource(t *testing.T){
  t.Setenv("SB_TEST_A","private-a");t.Setenv("SB_TEST_B","private-b")
