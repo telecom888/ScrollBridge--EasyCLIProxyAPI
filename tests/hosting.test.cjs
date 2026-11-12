@@ -66,3 +66,32 @@ test('message conversions preserve roles, output tokens and known protocol envel
  assert.equal(result.choices[0].message.content,'answer');
  assert.throws(()=>normalize({messages:[{role:'user',content:[{type:'image_url',image_url:{url:'data:'}}]}]},'openai'),/文本/);
 });
+
+test('loopback hosting bridge blocks unauthorized access and forwards converted requests to the correct key',async()=>{
+ const {startHostedBridge}=require('../lib/hosted-bridge.cjs');
+ const provider=p('key1');
+ const calls=[];
+ const bridge=await startHostedBridge({
+  getConfig:()=>({hostingProviders:[provider]}),
+  getSecrets:()=>({hostingKeys:{key1:'private-gemini-key'}}),
+  token:'random-bridge-test-secret',
+  fetcher:async(url,opts)=>{
+   calls.push({url,headers:opts.headers,body:JSON.parse(opts.body)});
+   return new Response(JSON.stringify({candidates:[{content:{parts:[{text:'from Gemini'}]}}],usageMetadata:{promptTokenCount:4,candidatesTokenCount:2}}),{status:200,headers:{'content-type':'application/json'}});
+  }
+ });
+ try{
+  const unauthorized=await fetch(bridge.url+'/v1/chat/completions',{method:'POST',headers:{'content-type':'application/json','x-scrollbridge-hosting-provider':'key1'},body:'{}'});
+  assert.equal(unauthorized.status,401);
+  const reply=await fetch(bridge.url+'/v1/chat/completions',{
+    method:'POST',headers:{'content-type':'application/json','authorization':'Bearer random-bridge-test-secret','x-scrollbridge-hosting-provider':'key1'},
+    body:JSON.stringify({model:'gemini-test',messages:[{role:'user',content:'hello'}],max_tokens:20})
+  });
+  assert.equal(reply.status,200);
+  const result=await reply.json();
+  assert.equal(result.choices[0].message.content,'from Gemini');
+  assert.equal(calls[0].headers['x-goog-api-key'],'private-gemini-key');
+  assert.match(calls[0].url,/\/v1beta\/models\/gemini-test:generateContent/);
+  assert.equal(calls[0].body.contents[0].parts[0].text,'hello');
+ }finally{await bridge.close();}
+});
