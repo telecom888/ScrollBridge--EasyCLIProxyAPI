@@ -215,7 +215,12 @@ const actions = {
     if (!config.hostname || !secrets.tunnelToken) throw new Error('请先填写域名和隧道令牌');
     state('starting');
     try {
-      await fetchModels(config,secrets);
+      try { await fetchModels(config,secrets); }
+      catch(error){
+        const hasHosted=config.hostingModels.some(m=>m.enabled&&config.hostingProviders.some(p=>p.id===m.providerId&&p.enabled));
+        if(!hasHosted)throw error;
+        log('本地代理暂时不可用，将使用已启用的托管模型');
+      }
       const hostingToken=randomBytes(32).toString('base64url');
       hostedBridge=await startHostedBridge({getConfig:()=>config,getSecrets:()=>secrets,token:hostingToken});
       gateway = await startGateway(config, secrets, record => { requestRecords.resize(config.requestRecordLimit);callStats.record(record);const row=requestRecords.add(record);if(windowVisible()&&!recordsCatchUp)recordChanges.set(row.id,row);if(recordChanges.size>config.requestRecordLimit)recordChanges.delete(recordChanges.keys().next().value);publishRecords(); }, { executable:app.isPackaged?path.join(process.resourcesPath,'vendor','scrollbridge-gateway.exe'):path.join(app.getAppPath(),'vendor','scrollbridge-gateway.exe'),stateDir:path.join(app.getPath('userData'),'gateway-go'),onExit:()=>{void stop().then(()=>state('error','网关意外退出，请重新连接'));},getConfig:()=>config,getSecrets:()=>secrets,hostingUrl:hostedBridge.url,hostingToken });
