@@ -1,5 +1,6 @@
 const { app, BrowserWindow, ipcMain, dialog, shell, clipboard, nativeImage, Tray, Menu, session, net } = require('electron');
 const {RequestRecords,normalizeIP,exportRecords}=require('../lib/request-records.cjs');
+const {CallStats}=require('../lib/call-stats.cjs');
 const requestRecords=new RequestRecords();
 const fs = require('node:fs');
 const path = require('node:path');
@@ -26,6 +27,7 @@ const configDirectory = dataDirectory({testDirectory:process.env.SCROLLBRIDGE_TE
 // Both desktop editions and every portable filename share the same identity.
 const profileDirectory = process.env.SCROLLBRIDGE_TEST_PROFILE || process.env.SCROLLBRIDGE_TEST_DATA || path.join(app.getPath('appData'), 'ScrollBridge');
 fs.mkdirSync(profileDirectory, {recursive:true});
+const callStats = new CallStats(profileDirectory);
 app.setPath('userData', profileDirectory);
 const ownsProfile = app.requestSingleInstanceLock();
 if (!ownsProfile) app.quit();
@@ -96,6 +98,7 @@ const actions = {
   downloadUpdate: () => {void updater.download().catch(e=>log(e.message));return updater.snapshot();},
   installUpdate: () => {void updater.apply().catch(e=>log(e.message));return updater.snapshot();},
   snapshot: () => {startup?.refresh();return view();},
+  getCallChart: payload => callStats.chart(payload?.range || '3h'),
   revealKey: payload => {const key=findKey(payload?.id);return {id:key.id,value:secrets.keyValues[key.id]};},
   save,
   copyKey: payload => { const key=findKey(payload?.id);clipboard.writeText(secrets.keyValues[key.id]); return true; },
@@ -157,7 +160,7 @@ const actions = {
     state('starting');
     try {
       await fetchModels(config,secrets);
-      gateway = await startGateway(config, secrets, record => { requestRecords.resize(config.requestRecordLimit);const row=requestRecords.add(record);if(windowVisible()&&!recordsCatchUp)recordChanges.set(row.id,row);if(recordChanges.size>config.requestRecordLimit)recordChanges.delete(recordChanges.keys().next().value);publishRecords(); }, { executable:app.isPackaged?path.join(process.resourcesPath,'vendor','scrollbridge-gateway.exe'):path.join(app.getAppPath(),'vendor','scrollbridge-gateway.exe'),stateDir:path.join(app.getPath('userData'),'gateway-go'),onExit:()=>{void stop().then(()=>state('error','网关意外退出，请重新连接'));},getConfig:()=>config,getSecrets:()=>secrets });
+      gateway = await startGateway(config, secrets, record => { requestRecords.resize(config.requestRecordLimit);callStats.record(record);const row=requestRecords.add(record);if(windowVisible()&&!recordsCatchUp)recordChanges.set(row.id,row);if(recordChanges.size>config.requestRecordLimit)recordChanges.delete(recordChanges.keys().next().value);publishRecords(); }, { executable:app.isPackaged?path.join(process.resourcesPath,'vendor','scrollbridge-gateway.exe'):path.join(app.getAppPath(),'vendor','scrollbridge-gateway.exe'),stateDir:path.join(app.getPath('userData'),'gateway-go'),onExit:()=>{void stop().then(()=>state('error','网关意外退出，请重新连接'));},getConfig:()=>config,getSecrets:()=>secrets });
       const executable = app.isPackaged ? path.join(process.resourcesPath, 'vendor', 'cloudflared.exe') : path.join(app.getAppPath(), 'vendor', 'cloudflared.exe');
       tunnel = startTunnel({ executable, token: secrets.tunnelToken, protocol: config.protocol, onState: state, onLog: log });
       log('网关已启动，等待隧道连接');
@@ -223,7 +226,7 @@ function updateModels(knownModels) {
 }
 async function invokeAction(action,payload) {
   if(!Object.hasOwn(actions,action))throw Object.assign(new Error('请求无效'),{status:404,code:'NOT_FOUND'});
-  const mutation=!['snapshot','getRequestBody','copyRequestIP','exportRecords','copy','copyKey','revealKey','openCloudflare','openGuide','openData','openRepository','checkUpdates','downloadUpdate','installUpdate'].includes(action);
+  const mutation=!['snapshot','getCallChart','getRequestBody','copyRequestIP','exportRecords','copy','copyKey','revealKey','openCloudflare','openGuide','openData','openRepository','checkUpdates','downloadUpdate','installUpdate'].includes(action);
   if(closing)throw Object.assign(new Error('程序正在退出'),{status:503,code:'SHUTTING_DOWN'});
   if(mutation && busy)throw Object.assign(new Error('请等待当前操作完成'),{status:409,code:'BUSY'});
   if(mutation)busy=true;
@@ -315,4 +318,4 @@ app.whenReady().then(async () => {
   }
 });
 app.on('window-all-closed', () => { if (!gateway) { closing = true; app.quit(); } });
-app.on('before-quit', e => { modelRefresh?.stop();managementAPI?.close();if (gateway || tunnel) { e.preventDefault(); closing = true; stop().finally(() => app.quit()); } });
+app.on('before-quit', e => { callStats.close(); modelRefresh?.stop();managementAPI?.close();if (gateway || tunnel) { e.preventDefault(); closing = true; stop().finally(() => app.quit()); } });

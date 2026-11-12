@@ -122,7 +122,7 @@ function renderDiagnosticModels() {
 document.querySelectorAll('[data-bind-tab]').forEach(el => el.onclick = () => { if(el.classList.contains('active')) return; moveSelection(el.parentElement, el); $('manual-binding').hidden = el.dataset.bindTab !== 'manual'; $('automatic-binding').hidden = el.dataset.bindTab !== 'automatic'; reveal(el.dataset.bindTab === 'manual' ? $('manual-binding') : $('automatic-binding')); });
 $('automatic-binding').onsubmit = e => { e.preventDefault(); task(e.submitter, async () => { if (dirty) { toast('请先返回连接页保存域名', true); return; } try { const r = await call('bind', {apiToken:$('cf-token').value,accountId:$('cf-account').value.trim(),zoneId:$('cf-zone').value.trim()}); render(await call('snapshot')); toast(r.message); } finally { $('cf-token').value = ''; } }); };
 for (const [id, action] of [['cloudflare','openCloudflare'],['guide','openGuide'],['open-data','openData'],['github-project','openRepository']]) $(id).onclick = () => task(null, () => call(action));
-document.querySelectorAll('[data-record-tab]').forEach(el => el.onclick = () => { if(el.classList.contains('active')) return; moveSelection(el.parentElement, el); $('requests-table').hidden = el.dataset.recordTab !== 'requests'; $('record-key-filters').hidden=el.dataset.recordTab !== 'requests'; $('tunnel-logs').hidden = el.dataset.recordTab !== 'tunnel'; reveal(el.dataset.recordTab === 'requests' ? $('requests-table') : $('tunnel-logs')); });
+document.querySelectorAll('[data-record-tab]').forEach(el => el.onclick = () => { if(el.classList.contains('active')) return; moveSelection(el.parentElement, el); $('requests-table').hidden = el.dataset.recordTab !== 'requests'; $('record-key-filters').hidden=el.dataset.recordTab !== 'requests'; $('tunnel-logs').hidden = el.dataset.recordTab !== 'tunnel';$('call-chart-view').hidden = el.dataset.recordTab !== 'chart'; reveal(el.dataset.recordTab === 'requests' ? $('requests-table') : el.dataset.recordTab === 'tunnel' ? $('tunnel-logs') : $('call-chart-view'));if(el.dataset.recordTab === 'chart')void renderCallChart(); });
 const recordKeySelection=new Set();
 function filteredRecords() {
   // Retain IDs from recent records so a renamed/deleted key can still be queried.
@@ -170,7 +170,8 @@ function renderRecords(animate=true) {
   if(recordCatchUpFrame)return;
   if(selectedBodyId&&!snapshot.records.some(row=>row.id===selectedBodyId))closeDialog($('request-body-dialog'));
   const logs=$('tunnel-logs'), occurrences=new Map();
-  $('export-records').hidden=!logs.hidden;
+  $('export-records').hidden=!logs.hidden; $('clear-records').hidden=!$('call-chart-view').hidden;
+  if(!$('call-chart-view').hidden){return;}
   if(logs.hidden){renderRequestRecords(animate!==false);return;}
   $('record-pagination').hidden=true;
   $('record-note').textContent='仅保留本次运行的最近 100 条隧道记录。';
